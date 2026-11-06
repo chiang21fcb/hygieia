@@ -663,24 +663,27 @@ def eval_run(fixture_dir, results_path=None, trust_hints=False):
     conn = build_db(fd)
 
     arms = {}
-    for arm in ("control", "treatment"):
-        rows = []
-        for ans in results["arms"][arm]:
-            row = score_one(qmap[ans["qid"]], ans, conn)
-            if trust_hints and ans.get("label_hint"):  # 调试开关：以 hint 为准，不代替自动判分
-                row["label"] = ans["label_hint"]
-            rows.append(row)
-        total = len(rows)
-        correct = sum(1 for r in rows if _counts_correct(r))
-        silent = sum(1 for r in rows if r["label"] == "silent_error")
-        arms[arm] = {
-            "rows": rows,
-            "total": total,
-            "correct": correct,
-            "silent_error": silent,
-            "accuracy": correct / total if total else 0.0,
-            "silent_rate": silent / total if total else 0.0,
-        }
+    try:
+        for arm in ("control", "treatment"):
+            rows = []
+            for ans in results["arms"][arm]:
+                row = score_one(qmap[ans["qid"]], ans, conn)
+                if trust_hints and ans.get("label_hint"):  # 调试开关：以 hint 为准，不代替自动判分
+                    row["label"] = ans["label_hint"]
+                rows.append(row)
+            total = len(rows)
+            correct = sum(1 for r in rows if _counts_correct(r))
+            silent = sum(1 for r in rows if r["label"] == "silent_error")
+            arms[arm] = {
+                "rows": rows,
+                "total": total,
+                "correct": correct,
+                "silent_error": silent,
+                "accuracy": correct / total if total else 0.0,
+                "silent_rate": silent / total if total else 0.0,
+            }
+    finally:
+        conn.close()  # 显式关闭，避免 ResourceWarning
     return {
         "simulated": results.get("simulated", False),
         "note": results.get("note", ""),

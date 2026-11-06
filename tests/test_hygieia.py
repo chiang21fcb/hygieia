@@ -198,12 +198,15 @@ class TestNetRevenueExecutable(unittest.TestCase):
         sm = hygieia.load_yml(FIX / "semantic" / "metrics.yml")
         expr = next(m["expr"] for m in sm["metrics"] if m["id"] == "net_revenue")
         conn = hygieia.build_db(FIX)
-        all_time = conn.execute(f"SELECT {expr} FROM orders").fetchone()[0]
-        july = conn.execute(
-            f"SELECT {expr} FROM orders WHERE order_date >= '2026-07-01' AND order_date < '2026-08-01'"
-        ).fetchone()[0]
-        self.assertEqual(all_time, 1760)
-        self.assertEqual(july, 1110)
+        try:
+            all_time = conn.execute(f"SELECT {expr} FROM orders").fetchone()[0]
+            july = conn.execute(
+                f"SELECT {expr} FROM orders WHERE order_date >= '2026-07-01' AND order_date < '2026-08-01'"
+            ).fetchone()[0]
+            self.assertEqual(all_time, 1760)
+            self.assertEqual(july, 1110)
+        finally:
+            conn.close()  # 显式关闭，避免 ResourceWarning
 
 
 class TestDescriptionRules(unittest.TestCase):

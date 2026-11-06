@@ -13,7 +13,7 @@ description: >
 
 > We don't build ontologies — we keep them healthy.
 
-A fully offline semantic-layer health-check skill. Given a fixture directory (`schema.sql` + `seed.sql` + `semantic/metrics.yml` + `questions.yaml`), run the four commands per the operating contract below. Binding details (metrics.yml schema, severity, scoring protocol, rot threat model) live in `docs/contract.zh.md` (Chinese, authoritative) and `docs/contract.en.md` (English mirror); the essentials are inlined below so this skill stays self-contained.
+A fully offline semantic-layer health-check skill. Given a fixture directory (`schema.sql` + `seed.sql` + `semantic/metrics.yml` + `questions.yaml`), run the four commands per the operating contract below. Hygieia does not bootstrap ontologies: the "first build" half can be served by third-party bootstrap flows (e.g., the ontology-skills bootstrap), and their output can be handed to Hygieia as a downstream quality gate. Binding details (metrics.yml schema, severity, scoring protocol, rot threat model) live in `docs/contract.zh.md` (Chinese, authoritative) and `docs/contract.en.md` (English mirror); the essentials are inlined below so this skill stays self-contained.
 
 ## Triggers
 

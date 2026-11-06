@@ -89,9 +89,9 @@ A silent error is a wrong number with no error and no clarification — the user
 
 ### Why this project exists
 
-Existing tools mostly answer "how do I build an ontology" — bootstrapping one from metadata, docs, and guided forms. Nobody takes care of what happens after: diagnosing whether the ontology is broken, proving whether it helps or hurts your data agent, and detecting when it starts to rot. Hygieia is a proof of concept that does exactly this one thing, with reproducible numbers.
+Existing tools mostly answer "how do I build an ontology" — bootstrapping one from metadata, docs, and guided forms (e.g., the ontology-skills bootstrap flow). Hygieia is the other half: it does not bootstrap anything; it inspects, evaluates, and stress-tests whatever semantic layer you already have, no matter where it came from. A bootstrap output can be handed to Hygieia as a downstream quality gate — it will tell you whether the ontology is already broken and whether a data agent would silently answer wrong. Nobody was taking care of that after-the-fact half: diagnosing, proving with reproducible numbers, and detecting rot early. Hygieia is a proof of concept that does exactly this one thing.
 
-It is an original project: it does not benchmark, cite, or reference any third-party project.
+It remains an original project: it does not benchmark, cite, or rely on any third-party project as an evaluation baseline — the complement sentence above is about slotting in downstream, not about borrowing their work.
 
 ## Known limitations
 
@@ -123,7 +123,7 @@ v2              evolution loop: change → detect → suggest → approve → ve
 v3              cross-platform semantic consistency + action-layer audit        ← the open slot (6–12 months)
 ```
 
-- v1: join mining moves to AST-level SQL parsing; mainstream Chinese data-warehouse dialects; merge requests trigger audit + eval and block on poor quality; git diff → impact analysis of affected metrics
+- v1: join mining moves to AST-level SQL parsing; mainstream Chinese data-warehouse dialects; merge requests trigger audit + eval and block on poor quality; git diff → impact analysis of affected metrics; read-only adapters (dbt / MetricFlow / external ontology trees → `metrics.yml`) as a downstream quality gate
 - v2: ontology versioning and evolution history; the change → detect → suggest → approve → merge loop; maintenance becomes CI events instead of a manual weekly report
 
 ## Data statement

@@ -1,0 +1,10 @@
+[project]
+name = "hygieia"
+version = "0.1.0"
+description = "Inspect, evaluate, and stress-test your semantic layer — fully offline."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pyyaml>=6.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
