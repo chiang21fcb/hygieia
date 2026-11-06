@@ -1,0 +1,18 @@
+{
+  "fixture": "ecom",
+  "note": "rot 注入后必须被捕获的语义腐烂 finding（rule + subject）；structural 基线仍是 4 条",
+  "expected": [
+    {
+      "rule": "R8-stale-alias",
+      "subject": "gmv",
+      "severity": "high",
+      "category": "semantic"
+    },
+    {
+      "rule": "R9-source-freshness",
+      "subject": "revenue",
+      "severity": "high",
+      "category": "semantic"
+    }
+  ]
+}

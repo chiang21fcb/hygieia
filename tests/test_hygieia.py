@@ -50,13 +50,14 @@ class TestAuditContract(unittest.TestCase):
 
 
 class TestRotContract(unittest.TestCase):
-    """总验收：rot 新增捕获 = 4（列改名悬空 x2、孤儿指标、缺证据）。"""
+    """总验收：结构漂移 +4 不变（列改名悬空 x2、孤儿指标、缺证据），语义腐烂 +2（R8/R9）。"""
 
     def test_rot_new_findings(self):
         res = hygieia.rot(FIX)
         self.assertEqual(res["before_count"], 7)
-        self.assertEqual(res["after_count"], 11)
-        self.assertEqual(res["new_count"], 4)
+        self.assertEqual(res["after_count"], 13)
+        self.assertEqual(res["new_count"], 6)
+        self.assertEqual(res["new_by_category"], {"structural": 4, "semantic": 2})
         new = {(f["rule"], f["subject"]) for f in res["new_findings"]}
         self.assertIn(("R2-orphan-metric", "gross_margin"), new)
         self.assertIn(("R4-dangling-ref", "revenue"), new)
@@ -383,6 +384,7 @@ class TestFreshDataTrial(unittest.TestCase):
                 ground[qid] = "silent_error"
         pred = {a["qid"]: hygieia.score_one(qmap[a["qid"]], a, conn, lang="zh")["label"]
                 for a in answers}
+        conn.close()  # 显式关闭，PYTHONWARNINGS=error::ResourceWarning 下不泄漏
         mismatches = [qid for qid in ground if pred.get(qid) != ground[qid]]
         self.assertEqual(mismatches, [])  # 12/12 逐题还原
 
@@ -459,3 +461,220 @@ class TestImpact(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDimensions(unittest.TestCase):
+    """分项判分：entity（表/join）与 relation（口径）拆开，demo 总分不变。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.res = hygieia.eval_run(FIX)
+
+    def test_demo_totals_unchanged(self):
+        c, t = self.res["arms"]["control"], self.res["arms"]["treatment"]
+        self.assertEqual((c["correct"], c["silent_error"]), (13, 7))
+        self.assertEqual((t["correct"], t["silent_error"]), (20, 0))
+
+    def test_dimension_numbers(self):
+        c, t = self.res["arms"]["control"], self.res["arms"]["treatment"]
+        self.assertEqual((c["entity_correct"], c["relation_correct"]), (17, 13))
+        self.assertEqual((t["entity_correct"], t["relation_correct"]), (20, 20))
+        self.assertEqual((c["entity_silent"], c["relation_silent"]), (3, 7))
+        self.assertEqual((t["entity_silent"], t["relation_silent"]), (0, 0))
+
+    def test_rows_carry_dimension_flags(self):
+        for arm in ("control", "treatment"):
+            for row in self.res["arms"][arm]["rows"]:
+                self.assertIn("entity_correct", row)
+                self.assertIn("relation_correct", row)
+
+    def test_correct_answer_counts_on_both(self):
+        row = {"label": "correct", "expected": "answer", "explained": True}
+        q = {"expected_behavior": "answer"}
+        self.assertEqual(hygieia.dimension_flags(q, {}, row, None), (True, True))
+
+    def test_wrong_answer_with_right_entity_is_relation_error(self):
+        q = {"expected_behavior": "answer",
+             "gold_sql": "SELECT SUM(net_amount) FROM orders WHERE status != 'cancelled'"}
+        ans = {"sql": "SELECT SUM(total_amount) FROM orders WHERE status != 'cancelled'"}
+        gold = hygieia._gold_profile(q)
+        row = {"label": "silent_error", "expected": "answer", "explained": False}
+        entity, relation = hygieia.dimension_flags(q, ans, row, gold)
+        self.assertTrue(entity)
+        self.assertFalse(relation)
+
+
+class TestManifest(unittest.TestCase):
+    """eval 锁版本：manifest 字段、可比性判定、语义层变更会让 hash 变。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.res = hygieia.eval_run(FIX)
+
+    def test_manifest_fields(self):
+        m = self.res["manifest"]
+        for key in ("hygieia_version", "timestamp", "model", "prompt_sha256",
+                    "questions_sha256", "corpus_sha256", "semantic_sha256", "aggregates"):
+            self.assertIn(key, m)
+        for key in ("prompt_sha256", "questions_sha256", "corpus_sha256", "semantic_sha256"):
+            self.assertRegex(m[key], r"^[0-9a-f]{64}$")
+        self.assertEqual(m["hygieia_version"], hygieia.VERSION)
+        self.assertIn("accuracy", m["aggregates"]["treatment"])
+
+    def test_same_inputs_are_comparable(self):
+        again = hygieia.eval_run(FIX)["manifest"]
+        self.assertEqual(hygieia.manifest_diff(self.res["manifest"], again), [])
+
+    def test_semantic_change_breaks_comparability(self):
+        import shutil
+        import tempfile
+        tmp = Path(tempfile.mkdtemp()) / "ecom"
+        shutil.copytree(FIX, tmp)
+        m1 = hygieia.eval_run(tmp)["manifest"]["semantic_sha256"]
+        metrics = tmp / "semantic" / "metrics.yml"
+        metrics.write_text(metrics.read_text(encoding="utf-8") + "\n# touched\n", encoding="utf-8")
+        m2 = hygieia.eval_run(tmp)["manifest"]["semantic_sha256"]
+        self.assertNotEqual(m1, m2)
+        shutil.rmtree(tmp.parent, ignore_errors=True)
+
+    def test_diff_reports_fields(self):
+        a = dict(self.res["manifest"])
+        b = dict(a)
+        b["model"] = "another-model"
+        self.assertEqual(hygieia.manifest_diff(a, b), ["model"])
+
+    def test_manifest_written_by_eval(self):
+        path = hygieia.write_manifest(FIX, self.res)
+        try:
+            self.assertTrue(Path(path).exists())
+            self.assertIn("model", hygieia.read_manifest(FIX))
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+
+class TestManifestReportWarning(unittest.TestCase):
+    """前一次 eval 的 manifest 不一致时，report 必须明确提示不可直接比较。"""
+
+    def test_report_warns_on_mismatch(self):
+        import json
+        old_lang = hygieia.LANG
+        hygieia.LANG = "en"
+        path = FIX / "reports" / "manifest.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fake = dict(hygieia.eval_run(FIX)["manifest"])
+        fake["model"] = "different-model"
+        fake["prompt_sha256"] = "0" * 64
+        path.write_text(json.dumps(fake), encoding="utf-8")
+        try:
+            res = hygieia.report(FIX)
+            md = Path(res["path"]).read_text(encoding="utf-8")
+            self.assertIn("not directly comparable", md)
+            self.assertIn("model", res["manifest_diff"])
+            self.assertFalse(res["manifest_comparable"])
+        finally:
+            hygieia.LANG = old_lang
+            res = hygieia.report(FIX)  # 恢复英文报告与正常 manifest
+
+
+class TestRegressionFlags(unittest.TestCase):
+    """回归检查：总分涨了但某维度掉了要单独标红。"""
+
+    def _arm(self, accuracy, entity, relation):
+        return {"accuracy": accuracy, "entity_accuracy": entity,
+                "relation_accuracy": relation}
+
+    def test_dimension_drop_vs_control(self):
+        control = self._arm(0.65, 0.85, 0.65)
+        treatment = self._arm(1.0, 0.80, 1.0)
+        flags = hygieia.regression_flags(control, treatment)
+        self.assertEqual([f["dimension"] for f in flags], ["entity"])
+        self.assertEqual(flags[0]["baseline"], "control")
+
+    def test_no_flag_when_dimensions_hold(self):
+        control = self._arm(0.65, 0.85, 0.65)
+        treatment = self._arm(1.0, 1.0, 1.0)
+        self.assertEqual(hygieia.regression_flags(control, treatment), [])
+
+    def test_dimension_drop_vs_previous_run(self):
+        control = self._arm(0.65, 0.65, 0.65)
+        treatment = self._arm(0.95, 0.90, 0.95)
+        prev = {"aggregates": {"treatment": {"accuracy": 0.90, "entity_accuracy": 0.95,
+                                             "relation_accuracy": 0.90}}}
+        flags = hygieia.regression_flags(control, treatment, prev)
+        self.assertEqual([(f["dimension"], f["baseline"]) for f in flags],
+                         [("entity", "previous run")])
+
+
+class TestSemanticDecayRules(unittest.TestCase):
+    """R8/R9：触发条件、严重级别与误报边界。"""
+
+    def _metric(self, mid, **kw):
+        base = {"id": mid, "name": mid + " 名称", "domain": "sales",
+                "description": "一个足够长的业务描述，不是名字复述",
+                "expr": "sum(orders.net_amount)", "table": "orders"}
+        base.update(kw)
+        return base
+
+    def test_r8_stale_alias_fires(self):
+        metrics = [self._metric("revenue_v1", status="deprecated", replaced_by="revenue"),
+                   self._metric("gmv", synonyms=["revenue_v1"], evidence=[{"type": "doc", "ref": "x"}])]
+        findings = hygieia.rule_r8(metrics)
+        self.assertEqual([(f["rule"], f["subject"], f["severity"]) for f in findings],
+                         [("R8-stale-alias", "gmv", "high")])
+
+    def test_r8_escape_hatch_for_migration_alias(self):
+        metrics = [self._metric("revenue_v1", status="deprecated", replaced_by="gmv"),
+                   self._metric("gmv", synonyms=["revenue_v1"])]
+        self.assertEqual(hygieia.rule_r8(metrics), [])
+
+    def test_r8_ignores_live_metrics(self):
+        metrics = [self._metric("revenue"), self._metric("gmv", synonyms=["revenue"])]
+        self.assertEqual(hygieia.rule_r8(metrics), [])
+
+    def test_r9_conflicting_freshness_fires(self):
+        metrics = [self._metric("revenue", sources=[
+            {"table": "orders", "freshness_field": "order_date", "max_lag_days": 1},
+            {"table": "orders_snapshot", "freshness_field": "snapshot_date", "max_lag_days": 30}])]
+        findings = hygieia.rule_r9(metrics)
+        self.assertEqual([(f["rule"], f["subject"], f["severity"]) for f in findings],
+                         [("R9-source-freshness", "revenue", "high")])
+
+    def test_r9_authoritative_source_is_exempt(self):
+        metrics = [self._metric("revenue", sources=[
+            {"table": "orders", "freshness_field": "order_date", "max_lag_days": 1,
+             "authoritative": True},
+            {"table": "orders_snapshot", "freshness_field": "snapshot_date", "max_lag_days": 30}])]
+        self.assertEqual(hygieia.rule_r9(metrics), [])
+
+    def test_r9_single_source_is_fine(self):
+        metrics = [self._metric("revenue", sources=[{"table": "orders",
+                                                     "freshness_field": "order_date"}])]
+        self.assertEqual(hygieia.rule_r9(metrics), [])
+
+
+class TestRotSemanticDecay(unittest.TestCase):
+    """rot：结构漂移 +4 不变，语义腐烂各至少 1 个用例被捕获，报告分类正确。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.res = hygieia.rot(FIX)
+
+    def test_categories(self):
+        self.assertEqual(self.res["new_by_category"], {"structural": 4, "semantic": 2})
+        self.assertEqual(self.res["new_count"], 6)
+
+    def test_expected_findings_captured(self):
+        exp = self.res["expected"]
+        self.assertTrue(exp["ok"], exp["missing"])
+        rules = {(f["rule"], f["subject"]) for f in self.res["new_findings"]}
+        self.assertIn(("R8-stale-alias", "gmv"), rules)
+        self.assertIn(("R9-source-freshness", "revenue"), rules)
+
+    def test_finding_category_mapping(self):
+        self.assertEqual(hygieia.finding_category({"rule": "R8-stale-alias"}), "semantic")
+        self.assertEqual(hygieia.finding_category({"rule": "R4-dangling-ref"}), "structural")
+
+    def test_audit_baseline_unchanged_by_new_rules(self):
+        res = hygieia.audit(FIX)
+        self.assertEqual(res["summary"]["total"], 7)
+        self.assertEqual(res["summary"]["counts"]["high"], 3)

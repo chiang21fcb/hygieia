@@ -17,20 +17,35 @@
 - (none)
 
 ## Rot simulation
-Before: 7 findings | After: 11 | New captures: 4
-- Injections: column rename orders.total_amount -> order_amount (semantic layer still references the old column); refund_total.expr tampered to add a refunds.tax reference; new orphan metric gross_margin (domain finance missing, no evidence)
-- 🆕 R2-orphan-metric: metric 'gross_margin' references a non-existent domain 'finance'
-- 🆕 R4-dangling-ref: metric 'revenue' references a missing column 'total_amount' in orders
-- 🆕 R4-dangling-ref: metric 'avg_order_value' references a missing column 'total_amount' in orders
-- 🆕 R5-no-evidence: metric 'gross_margin' has no source evidence (doc/comment/dashboard)
+Before: 7 findings | After: 13 | New captures: 6
+New captures: 6 (structural 4 | semantic 2)
+- Injections: column rename orders.total_amount -> order_amount (semantic layer still references the old column); refund_total.expr tampered to add a refunds.tax reference; new orphan metric gross_margin (domain finance missing, no evidence); added deprecated metric revenue_v1 and pointed alias revenue_v1 at it from gmv (stale alias); metric revenue merges orders and orders_snapshot, two sources with conflicting freshness
+- 🆕 [structural] R2-orphan-metric: metric 'gross_margin' references a non-existent domain 'finance'
+- 🆕 [structural] R4-dangling-ref: metric 'revenue' references a missing column 'total_amount' in orders
+- 🆕 [structural] R4-dangling-ref: metric 'avg_order_value' references a missing column 'total_amount' in orders
+- 🆕 [structural] R5-no-evidence: metric 'gross_margin' has no source evidence (doc/comment/dashboard)
+- 🆕 [semantic] R8-stale-alias: metric 'gmv' has synonym 'revenue_v1' pointing at deprecated metric 'revenue_v1'
+- 🆕 [semantic] R9-source-freshness: metric 'revenue' treats 2 sources as one caliber, but their freshness differs: freshness_field: order_date, snapshot_date
 
 ## Evaluation
 | Metric | No semantic layer (control) | With semantic layer (treatment) |
 |---|---|---|
 | Accuracy | 13/20 (65%) | 20/20 (100%) |
 | Silent-error rate | 7/20 (35%) | 0/20 (0%) |
+| entity accuracy | 17/20 (85%) | 20/20 (100%) |
+| entity silent rate | 3/20 (15%) | 0/20 (0%) |
+| relation accuracy | 13/20 (65%) | 20/20 (100%) |
+| relation silent rate | 7/20 (35%) | 0/20 (0%) |
+
+> entity = tables / join paths; relation = metric caliber (aggregation + filters). A correct answer counts on both dimensions; a wrong answer that cannot be attributed scores on neither.
 
 > Note: this demo's evaluation combines simulated two-arm answers with real SQL scoring. The answers come from demo_results.json (simulated: true, hand-authored); the numbers come from real gold/candidate SQL execution on in-memory SQLite; this is not a live LLM evaluation.
+
+## Pinned versions (manifest)
+- manifest matches the previous eval: the two runs are directly comparable
+
+### Regression check
+- no regression: no dimension dropped against its baseline
 
 ## Uncovered drift (v1+)
 - synonym drift (a good word pointing at a bad metric)

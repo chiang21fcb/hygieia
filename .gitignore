@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 **/metrics.rot.yml
+fixtures/*/reports/manifest.json
 fixtures/*/runs/*
 !fixtures/*/runs/README.md
 !fixtures/ecom/runs/live-20261106-dsh/

@@ -61,7 +61,17 @@ A data agent gets its metrics, synonyms, joins, domains, and evidence from the s
 | Accuracy | 13/20 (65%) | 20/20 (100%) |
 | **Silent-error rate** | **7/20 (35%)** | **0/20 (0%)** |
 
-A silent error is a wrong number with no error and no clarification, so the user cannot tell. This is the core metric of `eval`. Representative failures from the control arm:
+A silent error is a wrong number with no error and no clarification, so the user cannot tell. This is the core metric of `eval`.
+
+Each answer is also scored on two dimensions: **entity** (tables / join paths) and **relation** (metric caliber: aggregation + filters). On the demo, control scores entity 17/20 and relation 13/20, treatment 20/20 on both: the failures are mostly caliber, not table-picking. `eval` writes a manifest (`reports/manifest.json`) pinning model, prompt hash, question-set hash, corpus hash, semantic-layer hash, and tool version; `report` refuses to call two runs comparable when those differ, and flags a dimension that drops while the overall score rises:
+
+| Run lock | Value |
+|---|---|
+| prompt | `fixtures/ecom/prompts/{control,treatment}.md` sha256 |
+| questions / corpus / semantic layer | `questions.yaml`, `schema.sql`+`seed.sql`, `semantic/metrics.yml` sha256 |
+| model | `simulated (hand-authored)` for the demo; `meta.json` model for live runs |
+
+Representative failures from the control arm:
 
 | # | Question | No semantic layer | Correct answer |
 |---|---|---|---|
@@ -73,7 +83,7 @@ A silent error is a wrong number with no error and no clarification, so the user
 | q12 | Average order value | 155 (canceled orders included) | 176 |
 | q20 | Does net revenue include shipping? | Confident "yes" | Undefined; should clarify |
 
-`audit` finds 7 issues in the same semantic layer (3 high: R1 synonym conflict, R3 join ambiguity, R4 dangling reference; 4 medium: R5 missing evidence). `rot` injects three kinds of drift (column rename, definition tampering, a new orphan metric) and re-runs audit: 4 new captures. The definition tampering hits an R4 that already existed before the drift (`refund_total` referencing the missing `refunds` table), so by the set-difference rule it adds none.
+`audit` finds 7 issues in the same semantic layer (3 high: R1 synonym conflict, R3 join ambiguity, R4 dangling reference; 4 medium: R5 missing evidence). `rot` injects five kinds of drift and re-runs audit: 6 new captures, split into structural (4: column rename, definition tampering, a new orphan metric) and semantic (2: a stale alias pointing at a deprecated metric, and one metric merging two sources with conflicting freshness). The definition tampering hits an R4 that already existed before the drift (`refund_total` referencing the missing `refunds` table), so by the set-difference rule it adds none.
 
 About this demo's data: the two arms' answers are hand-authored and marked `simulated: true` at the top of `demo_results.json`; they were not produced by a live model. The gold-standard SQL numbers come from real execution against the seed data in in-memory SQLite, and the scoring follows Section 13 of the contract. `net_revenue`'s expression `sum(orders.net_amount)` executes on the seed and matches the treatment answers. The R4 trap lives on a separate `refund_total` metric and is not on the evaluation's gold path.
 
@@ -92,7 +102,7 @@ The semantic layer fixed three caliber errors on q08, q10, and q12: total revenu
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/pipeline-dark.svg">
-  <img src="docs/figures/pipeline.svg" width="880" alt="Hygieia pipeline: the ecom fixture feeds audit, rot, and eval; audit checks R1-R7, rot injects three drifts in memory, eval scores two arms against executed gold SQL; report aggregates all three into reports/health-report.md. adapt dbt and impact are optional v1 utilities.">
+  <img src="docs/figures/pipeline.svg" width="880" alt="Hygieia pipeline: the ecom fixture feeds audit, rot, and eval; audit checks R1-R9, rot injects structural and semantic drift in memory, eval scores two arms against executed gold SQL; report aggregates all three into reports/health-report.md. adapt dbt and impact are optional v1 utilities.">
 </picture>
 
 ### Commands
@@ -101,7 +111,7 @@ Four main commands:
 
 | Command | What it does | Input | Output |
 |---|---|---|---|
-| `audit` | Static diagnosis across 7 rule classes (R1 synonym conflict / R2 orphan metric / R3 join ambiguity / R4 dangling reference / R5 missing evidence / R6 missing description / R7 redundancy) | `semantic/metrics.yml` + `schema.sql` | Every finding with its rule, danger, and fix |
+| `audit` | Static diagnosis across 9 rule classes (R1 synonym conflict / R2 orphan metric / R3 join ambiguity / R4 dangling reference / R5 missing evidence / R6 missing description / R7 redundancy / R8 stale alias / R9 source-freshness conflict) | `semantic/metrics.yml` + `schema.sql` | Every finding with its rule, danger, and fix |
 | `eval` | Two-arm evaluation: the same questions answered with and without the semantic layer | `questions.yaml` + both arms' answers (default `demo_results.json`) | Accuracy and silent-error rate |
 | `rot` | Injects three kinds of drift into an in-memory copy and re-runs audit; reports new captures (never writes to disk by default) | Same as above | Before → after → new captures |
 | `report` | Full health report: high/medium findings, rot simulation, evaluation | Same as above | `reports/health-report.md` |
@@ -121,7 +131,7 @@ Most existing tools answer how to build an ontology: bootstrapping one from meta
 
 1. The two arms' demo answers are hand-authored (marked `simulated: true` in `demo_results.json`): the numbers come from real SQL execution, but the answers were not generated live by a model. For a real evaluation, run the protocol inside a coding agent and store artifacts under `fixtures/ecom/runs/<timestamp>/` (see [docs/eval-live.md](docs/eval-live.md));
 2. Reference extraction is AST-based (sqlglot, sqlite dialect) and covers column refs and join `on_expr`; multi-dialect parsing, dbt `ref()`/macros, and CTE aliases are still not handled (an unparseable expression is surfaced as a high R4 finding, never silently ignored);
-3. Only 7 static rule classes are covered; deep caliber semantics, permissions, and action safety are out of scope;
+3. 9 static rule classes are covered (R1–R9); deep caliber semantics, permissions, and action safety are out of scope;
 4. A single schema directory and a single dialect are supported (a SQLite-friendly subset is enough to run the fixture);
 5. No UI, no multi-tenancy, no action layer;
 6. v0's native layout is the `metrics.yml` contract. `adapt dbt` is a read-only downstream adapter for a dbt/MetricFlow YAML subset (input assumptions and mapping: [docs/adapters.md](docs/adapters.md)); write-back, bootstrap, and other ecosystems are out of scope;
@@ -137,6 +147,8 @@ Most existing tools answer how to build an ontology: bootstrapping one from meta
 | R4 | Dialect functions mistaken for columns | CTE aliases, macros/templates |
 | R5 | Evidence stored outside the repo | Stale evidence still counts as present |
 | R6/R7 | Short but precise descriptions | Long but empty boilerplate |
+| R8 | A migration alias (not reported when `replaced_by` points at the current metric) | An alias pointing at a metric deleted from the file |
+| R9 | Multi-source metrics that declare `authoritative: true` (not reported) | Freshness conflict that only exists in the data |
 
 ## Roadmap
 

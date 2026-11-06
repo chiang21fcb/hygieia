@@ -15,6 +15,10 @@ fixtures/ecom/runs/<run_id>/
 └── notes.md           optional, free-form
 ```
 
+The scorer writes its version lock to `fixtures/ecom/reports/manifest.json` (generated, not tracked):
+model, `prompt_sha256`, `questions_sha256`, `corpus_sha256`, `semantic_sha256`,
+`hygieia_version`, `timestamp`, and the per-arm aggregates used by the regression check.
+
 `control.json` / `treatment.json` entries are the same shape as the arms of
 `demo_results.json`. `label_hint` is a debug-only override (used with
 `--trust-hints`); it never replaces automatic scoring.
@@ -33,6 +37,15 @@ python scripts/hygieia.py eval fixtures/ecom --results fixtures/ecom/runs/<run_i
 - The H2 tightening rule holds for both languages: empty or filler replies
   (`嗯`, `好的`, `ok`) on clarify questions never count as correct.
 - `--lang zh` only changes the display language, never the scoring keywords.
+- Each answer is scored on two dimensions: **entity** (candidate tables equal the
+  gold SQL's tables, via the sqlglot AST) and **relation** (aggregation signature
+  plus WHERE filter columns equal the gold's). A correct answer counts on both;
+  clarify questions and answers without SQL score on neither (not attributable).
+- `report` compares the current manifest with the previous eval's manifest.
+  Differences in version / model / prompt / questions / corpus / semantic layer
+  mean the two runs are **not directly comparable**, and the report says so.
+  It also flags a dimension that drops while the overall score rises (vs control
+  or vs the previous run).
 
 ## Two-arm prompt template (for the external agent)
 
@@ -40,18 +53,18 @@ Both arms answer the same 20 questions from `questions.yaml`. The agent may
 run any SQL it believes correct; it must write `raw` exactly as it would
 answer a user.
 
-**Control arm** (no semantic layer):
+The canonical templates live in `fixtures/ecom/prompts/control.md` and
+`fixtures/ecom/prompts/treatment.md`; their combined sha256 is recorded in the
+manifest, so editing a prompt changes the run identity.
 
-> You are a data analyst. Answer each question from the database. If you
-> cannot, say why. Return: `{"qid": "...", "sql": "..."?, "value": ...?,
-> "raw": "your final answer"}`.
+**Control arm** (`prompts/control.md`, no semantic layer): answer each question
+from the database; if you cannot, say why; return
+`{"qid", "sql"?, "value"?, "raw"}`.
 
-**Treatment arm** (semantic layer only):
-
-> Same, but you must answer through the semantic layer: pick metrics from
-> `semantic/metrics.yml`, join per `joins[].on_expr`, express answers as SQL
-> over the raw tables. If the layer cannot express the question, say so in
-> `raw` (no guessing, no invented metrics).
+**Treatment arm** (`prompts/treatment.md`, semantic layer only): answer through
+the layer - pick metrics from `semantic/metrics.yml`, join per
+`joins[].on_expr`, express answers as SQL over the raw tables; if the layer
+cannot express the question, say so in `raw` (no guessing, no invented metrics).
 
 Write the two answer lists into the run directory, set
 `meta.json` → `simulated: false`, and score.
@@ -59,5 +72,7 @@ Write the two answer lists into the run directory, set
 ## Regression guarantee
 
 The default `eval fixtures/ecom` still reads `demo_results.json` and must keep
-reproducing 65%/35% (control) and 100%/0% (treatment). Any change to the
+reproducing 65%/35% (control) and 100%/0% (treatment), plus the dimension split
+(entity 17/20, relation 13/20 for control; 20/20 both for treatment). Rot is not
+affected by the eval manifest. Any change to the
 scorer must pass `python -m unittest discover -s tests -v`.

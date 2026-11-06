@@ -1,0 +1,40 @@
+# rot 的语义腐烂注入（在内存副本上应用，不写回语义层）
+# 1) stale alias：一个在用指标的别名指向已废弃指标（查询会被导流到旧口径）
+# 2) conflicting source timestamps：一个指标把两个新鲜度声明不同的来源当成同一口径
+deprecated_metric:
+  id: revenue_v1
+  name: 营收（旧口径）
+  domain: sales
+  description: 旧版营收口径，已被 revenue 取代，仅保留历史引用
+  expr: "sum(orders.net_amount)"
+  table: orders
+  status: deprecated
+  replaced_by: revenue
+  evidence:
+    - type: doc
+      ref: "retired metric, kept for migration only"
+
+stale_alias:
+  metric: gmv
+  synonym: revenue_v1
+  ensure_metric:
+    id: gmv
+    name: 成交额
+    domain: sales
+    description: 已支付订单的成交额口径，历史看板仍在使用
+    expr: "sum(orders.net_amount)"
+    table: orders
+    synonyms: []
+    evidence:
+      - type: doc
+        ref: "demo: gmv kept for legacy dashboards"
+
+conflicting_sources:
+  metric: revenue
+  sources:
+    - table: orders
+      freshness_field: order_date
+      max_lag_days: 1
+    - table: orders_snapshot
+      freshness_field: snapshot_date
+      max_lag_days: 30

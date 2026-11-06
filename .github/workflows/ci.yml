@@ -31,17 +31,22 @@ jobs:
             echo "expected exit 1 from --fail-on high, got $code" >&2
             exit 1
           fi
-      - name: eval (assert demo numbers)
+      - name: eval (assert demo numbers + dimensions + manifest)
         run: |
           out=$(python scripts/hygieia.py eval fixtures/ecom)
           echo "$out"
           echo "$out" | grep -q "65.0%" && echo "$out" | grep -q "35.0%"
           echo "$out" | grep -q "100.0%" && echo "$out" | grep -q "0.0%"
-      - name: rot (assert 4 new captures)
+          echo "$out" | grep -q "entity: control 17/20"
+          echo "$out" | grep -q "relation: control 13/20"
+          echo "$out" | grep -q "manifest: model simulated"
+      - name: rot (assert structural 4 + semantic 2)
         run: |
           out=$(python scripts/hygieia.py rot fixtures/ecom)
           echo "$out"
-          echo "$out" | grep -q "New captures: 4"
+          echo "$out" | grep -q "New captures: 6 (structural 4 | semantic 2)"
+          echo "$out" | grep -q "R8-stale-alias"
+          echo "$out" | grep -q "R9-source-freshness"
 
   impact:
     runs-on: ubuntu-latest

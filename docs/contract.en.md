@@ -28,7 +28,7 @@ Fixture: 6-table e-commerce schema (customers / orders / order_items / products 
 | **Silent-error rate** | **7/20 (35%)** | **0/20 (0%)** |
 
 - audit: 7 findings (3 high: R1 synonym conflict, R3 join ambiguity, R4 dangling reference; 4 medium: R5 missing evidence)
-- rot: 7 before → 11 after, **4 new captures** (column-rename dangling ×2 + orphan metric R2 + missing-evidence R5; the definition tampering hits a pre-existing R4 and adds none)
+- rot: 7 before → 13 after, **6 new captures** (structural 4: column-rename dangling ×2 + orphan metric R2 + missing-evidence R5; semantic 2: stale alias R8 + source-freshness conflict R9. The definition tampering hits a pre-existing R4 and adds none)
 
 Transparency: gold-standard SQL numbers come from real execution against the seed (in-memory SQLite); the two arms' answers are hand-authored (`simulated: true` in `demo_results.json`); the scoring logic is real code per Section 13.
 
@@ -66,11 +66,11 @@ metrics:
 > (PyYAML `safe_load` included), silently dropping the field. `on_expr` is a stable
 > string key, and R3/R4 validation reads it exclusively.
 
-Parsing heuristics (v0; simple but testable):
+Parsing rules (v0; sqlglot AST, testable):
 
-- extract `ident.ident` pairs from `expr` with a regex as table.column references; also extract bare known table names;
+- extract table.column references from `expr` with the sqlglot AST (sqlite dialect; `scripts/sql_refs.py`); an unparseable expression is reported explicitly, never silently ignored;
 - `joins[].left/right` must be tables in the schema;
-- from `joins[].on_expr`, extract table.column references and validate each: missing table or column → `R4-dangling-ref` (subject: `join <left>-><right>`);
+- from `joins[].on_expr`, extract table.column references with the same AST and validate each: missing table or column → `R4-dangling-ref` (subject: `join <left>-><right>`);
 - synonyms are compared after `strip` + lowercase (Chinese synonyms: exact match);
 - description shorter than 8 characters (configurable) → R6; description that, after stripping punctuation, is a simple concatenation of `{table, column, metric id, name}` tokens → R7.
 
@@ -111,7 +111,7 @@ The scorer follows Section 13; `label_hint` is for manual proofreading only and 
 
 | Severity | Meaning | Default mapping |
 |---|---|---|
-| high | can directly cause wrong numbers or silent caliber mistakes | R1, R3, R4; (R2 when the domain does not exist) |
+| high | can directly cause wrong numbers or silent caliber mistakes | R1, R3, R4, R8, R9; (R2 when the domain does not exist) |
 | medium | credibility / discoverability impaired; not necessarily a wrong number this time | R5; R2 without table binding but existing domain |
 | low | readability / context quality | R6, R7 |
 
@@ -139,6 +139,8 @@ Known false positives / missed detections (also written into the README):
 | R4 | dialect functions mistaken for columns | CTE aliases, macros/Jinja |
 | R5 | evidence stored outside the repo | stale evidence still counts as present |
 | R6/R7 | short but precise descriptions | long but empty boilerplate |
+| R8 | a migration alias (not reported when `replaced_by` points at the current metric) | an alias pointing at a metric deleted from the file |
+| R9 | multiple sources with an explicit `authoritative: true` (not reported) | freshness conflict that only exists in data, undeclared in the layer |
 
 ## 13. Scoring protocol (binding)
 
@@ -163,10 +165,38 @@ Known false positives / missed detections (also written into the README):
 4. **Silent-error rate** = silent_error questions / total questions.
 5. `honest_error` / `abstain` are **not** counted in the silent-error rate and not in the accuracy numerator (wrong/unanswered, but not "silent").
 
-### 13.3 Demo expectations (ecom / simulated answers)
+### 13.3 Dimension scoring (entity / relation)
 
-- control: accuracy 13/20, silent errors 7/20
-- treatment: accuracy 20/20, silent errors 0/20
+Every question is scored on two dimensions so "wrong table" and "wrong caliber" stay distinguishable:
+
+| Dimension | Meaning | Judged by |
+|---|---|---|
+| entity | entity / table / join path | candidate SQL's table set equals the gold SQL's table set (sqlglot AST) |
+| relation | metric caliber (aggregation + filters) | aggregation signature (function + column) and WHERE filter-column set equal the gold's |
+
+Rules: a `correct` answer counts on both dimensions; `expected_behavior: clarify`, unparseable gold, or a candidate without SQL scores on neither (not attributable, no credit).
+The report shows per-arm accuracy and silent rate for both dimensions and runs a **regression check**: when treatment's overall score rises but a dimension drops below control or the previous run, that dimension is flagged.
+
+### 13.4 Run manifest (pinned versions)
+
+Every `eval` writes `reports/manifest.json` with:
+
+| Field | Meaning |
+|---|---|
+| `hygieia_version` | tool version |
+| `model` | answering model (`simulated (hand-authored)` for the demo; from `meta.json` for live runs) |
+| `prompt_sha256` | combined hash of `fixtures/<fx>/prompts/{control,treatment}.md` |
+| `questions_sha256` / `corpus_sha256` / `semantic_sha256` | snapshots of the question set, corpus (schema+seed), and semantic layer |
+| `timestamp` / `run_id` | time and run id (ignored when comparing) |
+| `aggregates` | per-arm totals and dimension summaries (used by the regression check) |
+
+Comparability uses only `hygieia_version / model / prompt_sha256 / questions_sha256 / corpus_sha256 / semantic_sha256`;
+any difference means the two runs are **not directly comparable**, and `report` must say so.
+
+### 13.5 Demo expectations (ecom / simulated answers)
+
+- control: accuracy 13/20, silent errors 7/20; entity 17/20, relation 13/20
+- treatment: accuracy 20/20, silent errors 0/20; entity 20/20, relation 20/20
 
 After implementation, run the same scorer against `demo_results.json` and assert these numbers; if fixture tweaks change gold values, update this section and the numbers section together. Code-only changes without doc updates are forbidden.
 
@@ -194,7 +224,7 @@ Left for v1+ to keep the demo scope bounded.
 
 ## Acceptance and background (summary)
 
-- Acceptance: run `audit` / `eval` / `rot` / `report` offline on `fixtures/ecom`; audit ≥7 findings including R1/R3/R4 high; rot new captures ≥4; eval reproduces 65%/100% and 35%/0%; report contains three blocks; rule triggers, severity, and labels must match Sections 11–14 above. v0 explicitly does not do: UI, multi-tenancy, multi-dialect parsing, real LLM calls, third-party modeling adapters, permission/action-safety auditing.
+- Acceptance: run `audit` / `eval` / `rot` / `report` offline on `fixtures/ecom`; audit ≥7 findings including R1/R3/R4 high; rot new captures ≥6; eval reproduces 65%/100% and 35%/0%; report contains three blocks; rule triggers, severity, and labels must match Sections 11–14 above. v0 explicitly does not do: UI, multi-tenancy, multi-dialect parsing, real LLM calls, third-party modeling adapters, permission/action-safety auditing.
 - Overview: an agent skill, pure local offline, a ~300–400-line script + 6-table fixture + 20 Chinese questions; the demo narrative is silent errors on ambiguity questions; report format is three blocks; roles are the analytics-engineer PR gate, the nightly platform report, and incident post-mortems.
 - Glossary: 本体/语义层 interchangeable for the content of `metrics.yml` (not OWL formal ontologies); 静默错答 = a number/categorical answer that is wrong, with no error and no clarification; 腐烂 = definitions drifting stale relative to the real world; control/treatment = without vs with the semantic layer.
 - Open questions (research tracking, not blocking v0): multi-hop operationalization at 50 questions; interview phrasing for the pain point; stable finding ids `hash(rule, subject)` for CI diffs; Chinese synonym normalization (full/half-width, homophones) vs exact match.

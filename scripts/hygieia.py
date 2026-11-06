@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 import re
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 
 try:  # 脚本模式：scripts/ 在 sys.path 上
@@ -37,6 +39,7 @@ except ImportError:  # pragma: no cover
     sys.exit("hygieia requires PyYAML: pip install -r requirements.txt")
 
 PROG = "hygieia"
+VERSION = "0.1.0"  # 写进 eval manifest；发版时与 pyproject 同步
 SEVERITY_ORDER = {"high": 3, "medium": 2, "low": 1}
 DEFAULT_DESC_MIN_LEN = 8  # R6：描述短于该长度算「不是人话」（可配置）
 
@@ -83,6 +86,21 @@ _STR = {
         "r7_detail": "指标「{mid}」的描述只是复述表名/列名",
         "r7_danger": "上下文腐烂的起点",
         "r7_fix": "补充超出名字的业务含义",
+        "r8_detail": "指标「{mid}」的同义词「{s}」指向已废弃指标「{target}」",
+        "r8_danger": "问数会被导流到废弃口径",
+        "r8_fix": "把别名改指向替换指标，或删除该别名",
+        "r8_boundary": "已声明 replaced_by 且别名指向替换指标时不算问题",
+        "r9_detail": "指标「{mid}」把 {n} 个来源当成同一口径，但新鲜度声明不一致：{fields}",
+        "r9_danger": "陈旧快照会静默混入结果",
+        "r9_fix": "显式标注权威来源（authoritative: true），或拆分指标口径",
+        "r9_boundary": "来源标注 authoritative: true 时不报（已显式取舍）",
+        "inj_stale_alias": "新增已废弃指标 {mid}，并把别名 {syn} 挂到 {owner}（stale alias）",
+        "inj_conflicting_sources": "指标 {mid} 合并 {a} 与 {b} 两个新鲜度不一致的来源",
+        "inj_semantic_skip": "未找到语义腐烂注入文件，跳过程序化腐烂",
+        "rot_new_split": "新增捕获：{new}（结构漂移 {structural} ｜ 语义腐烂 {semantic}）",
+        "cat_structural": "结构漂移", "cat_semantic": "语义腐烂",
+        "rot_expected_ok": "expected_findings：{n} 条全部命中",
+        "rot_expected_missing": "expected_findings 未命中：{items}",
         "inj_rename": "列改名 orders.total_amount -> order_amount（语义层仍引用旧列）",
         "inj_tamper": "refund_total.expr 被篡改为追加 refunds.tax 引用",
         "inj_tamper_skip": "未找到 refund_total，跳过定义篡改注入",
@@ -112,12 +130,28 @@ _STR = {
         "report_finding": "- {rule}：{detail}，{danger}",
         "report_rot": "## 腐烂模拟",
         "report_injections": "- 注入：{items}",
-        "report_new": "- 🆕 {rule}：{detail}",
+        "report_new": "- 🆕 [{cat}] {rule}：{detail}",
         "report_none_new": "- 🆕（无新增捕获）",
         "report_eval": "## 对照评测",
         "report_eval_hdr": "| 指标 | 无语义层（control） | 有语义层（treatment） |",
         "report_accuracy": "| 准确率 | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
         "report_silent": "| 静默错答率 | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
+        "report_entity_acc": "| entity 准确率 | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
+        "report_entity_silent": "| entity 静默错答率 | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
+        "report_relation_acc": "| relation 准确率 | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
+        "report_relation_silent": "| relation 静默错答率 | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
+        "report_dim_note": "> entity = 表 / join 路径；relation = 指标口径（聚合 + 过滤）。答对的题两个维度都算对；答错且无法归因时两个维度都不计分。",
+        "report_manifest_hdr": "## 版本锁定（manifest）",
+        "report_manifest_ok": "- manifest 与前一次 eval 一致：两次 run 可直接比较",
+        "report_manifest_warn": "- ⚠️ manifest 与前一次 eval 不一致（{fields}）：两次 run 不可直接比较",
+        "report_manifest_none": "- 无前一次 manifest（首次运行，没有比较基线）",
+        "report_regression_hdr": "### 回归检查",
+        "report_regression_none": "- 无回归：各维度未相对基线下降",
+        "report_regression_item": "- 🔴 {dim} 准确率 {cur:.0%}，低于{base}的 {prev:.0%}",
+        "regress_vs_control": "control", "regress_vs_prev": "上次 run",
+        "dim_entity": "entity", "dim_relation": "relation",
+        "eval_dim_line": "  {dim}：control {cc}/{ct}（{ca:.1%}）｜ treatment {tc}/{tt}（{ta:.1%}）",
+        "eval_manifest": "manifest：model {model} ｜ semantic {sem} ｜ questions {q} ｜ prompts {pr} ｜ {path}",
         "report_eval_note": "> 说明：本 demo 的评测由模拟两臂答案和真实 SQL 判分组成。两臂答案来自 demo_results.json（simulated: true，人工编写），数字由金标/候选 SQL 在内存 SQLite 上真实执行得出，不是现场 LLM 评测。",
         "report_uncovered": "## 未覆盖漂移（v1+）",
         "report_uncovered_items": ("同义词漂移（好词指向坏指标）", "新增第三条 join 路径",
@@ -197,6 +231,21 @@ _STR = {
         "r7_detail": "metric '{mid}' description just echoes table/column names",
         "r7_danger": "the starting point of context rot",
         "r7_fix": "add business meaning beyond the name",
+        "r8_detail": "metric '{mid}' has synonym '{s}' pointing at deprecated metric '{target}'",
+        "r8_danger": "questions get routed to a retired definition",
+        "r8_fix": "repoint the alias at the replacement metric, or drop it",
+        "r8_boundary": "a deprecated metric with replaced_by and an alias pointing at it is fine",
+        "r9_detail": "metric '{mid}' treats {n} sources as one caliber, but their freshness differs: {fields}",
+        "r9_danger": "stale snapshots silently mix into results",
+        "r9_fix": "mark the authoritative source (authoritative: true), or split the metric",
+        "r9_boundary": "sources marked authoritative: true are not reported (explicit trade-off)",
+        "inj_stale_alias": "added deprecated metric {mid} and pointed alias {syn} at it from {owner} (stale alias)",
+        "inj_conflicting_sources": "metric {mid} merges {a} and {b}, two sources with conflicting freshness",
+        "inj_semantic_skip": "no semantic-decay injection file found; skipped",
+        "rot_new_split": "New captures: {new} (structural {structural} | semantic {semantic})",
+        "cat_structural": "structural", "cat_semantic": "semantic",
+        "rot_expected_ok": "expected_findings: all {n} captured",
+        "rot_expected_missing": "expected_findings missing: {items}",
         "inj_rename": "column rename orders.total_amount -> order_amount (semantic layer still references the old column)",
         "inj_tamper": "refund_total.expr tampered to add a refunds.tax reference",
         "inj_tamper_skip": "refund_total not found; definition tampering skipped",
@@ -226,12 +275,28 @@ _STR = {
         "report_finding": "- {rule}: {detail}; {danger}",
         "report_rot": "## Rot simulation",
         "report_injections": "- Injections: {items}",
-        "report_new": "- 🆕 {rule}: {detail}",
+        "report_new": "- 🆕 [{cat}] {rule}: {detail}",
         "report_none_new": "- 🆕 (no new captures)",
         "report_eval": "## Evaluation",
         "report_eval_hdr": "| Metric | No semantic layer (control) | With semantic layer (treatment) |",
         "report_accuracy": "| Accuracy | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
         "report_silent": "| Silent-error rate | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
+        "report_entity_acc": "| entity accuracy | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
+        "report_entity_silent": "| entity silent rate | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
+        "report_relation_acc": "| relation accuracy | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
+        "report_relation_silent": "| relation silent rate | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
+        "report_dim_note": "> entity = tables / join paths; relation = metric caliber (aggregation + filters). A correct answer counts on both dimensions; a wrong answer that cannot be attributed scores on neither.",
+        "report_manifest_hdr": "## Pinned versions (manifest)",
+        "report_manifest_ok": "- manifest matches the previous eval: the two runs are directly comparable",
+        "report_manifest_warn": "- ⚠️ manifest differs from the previous eval ({fields}): the two runs are not directly comparable",
+        "report_manifest_none": "- no previous manifest (first run, nothing to compare against)",
+        "report_regression_hdr": "### Regression check",
+        "report_regression_none": "- no regression: no dimension dropped against its baseline",
+        "report_regression_item": "- 🔴 {dim} accuracy {cur:.0%}, below {base} {prev:.0%}",
+        "regress_vs_control": "control", "regress_vs_prev": "the previous run",
+        "dim_entity": "entity", "dim_relation": "relation",
+        "eval_dim_line": "  {dim}: control {cc}/{ct} ({ca:.1%}) | treatment {tc}/{tt} ({ta:.1%})",
+        "eval_manifest": "manifest: model {model} | semantic {sem} | questions {q} | prompts {pr} | {path}",
         "report_eval_note": "> Note: this demo's evaluation combines simulated two-arm answers with real SQL scoring. The answers come from demo_results.json (simulated: true, hand-authored); the numbers come from real gold/candidate SQL execution on in-memory SQLite; this is not a live LLM evaluation.",
         "report_uncovered": "## Uncovered drift (v1+)",
         "report_uncovered_items": ("synonym drift (a good word pointing at a bad metric)",
@@ -362,7 +427,7 @@ def summarize(findings):
     return {"counts": counts, "by_rule": by_rule, "total": len(findings)}
 
 
-# ---------------------------------------------------------------- 规则 R1-R7
+# ---------------------------------------------------------------- 规则 R1-R9
 
 def rule_r1(metrics):
     """R1 同义冲突：同一同义词（strip+小写；中文精确匹配）指向多个指标定义 -> 高危。"""
@@ -530,6 +595,75 @@ def rule_r7(metrics, tables):
     return findings
 
 
+DEPRECATED_STATUS = ("deprecated", "retired")
+
+
+def _is_deprecated(m):
+    return m.get("status") in DEPRECATED_STATUS or m.get("deprecated") is True
+
+
+def rule_r8(metrics):
+    """R8 stale alias：别名指向已废弃指标 -> 高危。
+
+    触发：在用指标的同义词（或 name）等于另一个已废弃指标的 id / name。
+    误报边界：废弃指标声明 replaced_by == 当前指标时视为正常迁移别名，不报。
+    """
+    retired = {}
+    for m in metrics:
+        if _is_deprecated(m):
+            retired[(m.get("id") or "").strip().lower()] = m
+            if m.get("name"):
+                retired[m["name"].strip().lower()] = m
+    findings = []
+    for m in metrics:
+        if _is_deprecated(m):
+            continue
+        for syn in m.get("synonyms") or []:
+            target = retired.get(syn.strip().lower())
+            if not target or target["id"] == m["id"]:
+                continue
+            if (target.get("replaced_by") or "").strip() == m["id"]:
+                continue
+            findings.append(finding(
+                "R8-stale-alias", "high", m["id"],
+                t("r8_detail", mid=m["id"], s=syn, target=target["id"]),
+                t("r8_danger"), t("r8_fix")))
+            break
+    return findings
+
+
+def _freshness_conflict(sources):
+    """返回冲突描述（字符串）或 None；authoritative: true 视为显式取舍，不报。"""
+    if len(sources) < 2 or any(s.get("authoritative") for s in sources):
+        return None
+    fields = {s.get("freshness_field") for s in sources}
+    if len(fields) > 1:
+        return "freshness_field: " + ", ".join(sorted(str(f) for f in fields))
+    lags = [s.get("max_lag_days") for s in sources]
+    numeric = [x for x in lags if isinstance(x, (int, float))]
+    if len(numeric) == len(sources) and max(numeric) - min(numeric) > 1:
+        return "max_lag_days: " + ", ".join(str(x) for x in lags)
+    return None
+
+
+def rule_r9(metrics):
+    """R9 source freshness conflict：一个指标把多个来源当成同一口径，但新鲜度声明不一致 -> 高危。
+
+    触发：metric.sources >= 2，freshness_field 不同，或 max_lag_days 相差 > 1 天。
+    误报边界：任一来源声明 authoritative: true 时不报。
+    """
+    findings = []
+    for m in metrics:
+        sources = m.get("sources") or []
+        conflict = _freshness_conflict(sources)
+        if conflict:
+            findings.append(finding(
+                "R9-source-freshness", "high", m["id"],
+                t("r9_detail", mid=m["id"], n=len(sources), fields=conflict),
+                t("r9_danger"), t("r9_fix")))
+    return findings
+
+
 def audit_core(tables, metrics, domains, joins, desc_min_len=DEFAULT_DESC_MIN_LEN):
     findings = []
     findings.extend(rule_r1(metrics))
@@ -539,6 +673,8 @@ def audit_core(tables, metrics, domains, joins, desc_min_len=DEFAULT_DESC_MIN_LE
     findings.extend(rule_r5(metrics))
     findings.extend(rule_r6(metrics, desc_min_len))
     findings.extend(rule_r7(metrics, tables))
+    findings.extend(rule_r8(metrics))
+    findings.extend(rule_r9(metrics))
     return findings
 
 
@@ -606,8 +742,39 @@ def audit(fixture_dir):
 
 # ---------------------------------------------------------------- rot
 
+SEMANTIC_RULES = ("R8-stale-alias", "R9-source-freshness")
+
+
+def finding_category(f):
+    """rot 报告分类：R8/R9 属于语义腐烂，其余为结构漂移。"""
+    return "semantic" if f["rule"] in SEMANTIC_RULES else "structural"
+
+
+def _load_semantic_decay(fd):
+    path = Path(fd) / "rot" / "semantic_decay.yml"
+    if not path.exists():
+        return None
+    return load_yml(path)
+
+
+def _check_expected(fd, new_findings):
+    path = Path(fd) / "rot" / "expected_findings.json"
+    result = {"file": str(path), "items": [], "missing": [], "ok": True}
+    if not path.exists():
+        return result
+    spec = json.loads(path.read_text(encoding="utf-8"))
+    items = spec.get("expected") or []
+    captured = {(f["rule"], f["subject"]) for f in new_findings}
+    missing = [it for it in items
+               if (it.get("rule"), it.get("subject")) not in captured]
+    result.update({"items": items, "missing": missing, "ok": not missing})
+    return result
+
+
 def rot(fixture_dir):
-    """腐烂模拟：在内存副本上注入三类漂移（不写回磁盘，除非 --write），再重跑 audit。"""
+    """腐烂模拟：在内存副本上注入结构漂移（列改名/定义篡改/孤儿指标）与语义腐烂
+    （stale alias / 来源新鲜度冲突，来自 fixtures/<fx>/rot/semantic_decay.yml），
+    再重跑 audit；不写回磁盘，除非 --write。"""
     fd = Path(fixture_dir)
     tables = load_schema(fd / "schema.sql")
     sm = load_yml(fd / "semantic" / "metrics.yml")
@@ -647,12 +814,47 @@ def rot(fixture_dir):
     })
     injections.append(t("inj_orphan"))
 
+    # 4) stale alias + 5) conflicting source timestamps：语义腐烂注入（fixtures/<fixture>/rot/semantic_decay.yml）
+    decay = _load_semantic_decay(fd)
+    if decay:
+        deprecated = decay.get("deprecated_metric")
+        alias = decay.get("stale_alias") or {}
+        if deprecated:
+            metrics.append(copy.deepcopy(deprecated))
+        ensure = alias.get("ensure_metric")
+        if ensure and not any(m.get("id") == ensure.get("id") for m in metrics):
+            metrics.append(copy.deepcopy(ensure))
+        if alias:
+            for m in metrics:
+                if m.get("id") == alias.get("metric"):
+                    m.setdefault("synonyms", [])
+                    if alias.get("synonym") and alias["synonym"] not in m["synonyms"]:
+                        m["synonyms"].append(alias["synonym"])
+                    break
+        if deprecated or alias:
+            injections.append(t("inj_stale_alias", mid=(deprecated or {}).get("id", ""),
+                                syn=alias.get("synonym", ""), owner=alias.get("metric", "")))
+        conflict = decay.get("conflicting_sources") or {}
+        if conflict:
+            for m in metrics:
+                if m.get("id") == conflict.get("metric"):
+                    m["sources"] = copy.deepcopy(conflict.get("sources") or [])
+                    srcs = m["sources"]
+                    injections.append(t("inj_conflicting_sources", mid=m["id"],
+                                        a=srcs[0].get("table", ""), b=srcs[1].get("table", "")))
+                    break
+    else:
+        injections.append(t("inj_semantic_skip"))
+
     after = audit_core(tables, metrics, domains, joins)
 
     # 新增捕获数 = |findings_after - findings_before|（按 rule+subject+detail 去重后的集合差）
     key = lambda f: (f["rule"], f["subject"], f["detail"])
     before_keys = {key(f) for f in before}
     new_findings = [f for f in after if key(f) not in before_keys]
+    by_category = {"structural": 0, "semantic": 0}
+    for f in new_findings:
+        by_category[finding_category(f)] += 1
     return {
         "fixture": str(fd),
         "injections": injections,
@@ -662,6 +864,8 @@ def rot(fixture_dir):
         "before_count": len(before),
         "after_count": len(after),
         "new_count": len(new_findings),
+        "new_by_category": by_category,
+        "expected": _check_expected(fd, new_findings),
         "drifted_metrics": metrics,  # 注入后的语义层（仅 --write 落盘）
         "drifted_domains": domains,  # 注入后的域（深拷贝，--write 落盘）
         "drifted_joins": joins,      # 注入后的 join（深拷贝，键为 on_expr；--write 落盘）
@@ -804,6 +1008,150 @@ def _counts_correct(row):
     return False
 
 
+# ---------------------------------------------------------------- 版本锁定（manifest）与分项判分
+
+MANIFEST_COMPARE_KEYS = ("hygieia_version", "model", "prompt_sha256",
+                         "questions_sha256", "corpus_sha256", "semantic_sha256")
+
+
+def _sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_file(path):
+    try:
+        return _sha256(Path(path).read_bytes())
+    except OSError:
+        return ""
+
+
+def _prompt_blob(fd):
+    parts = []
+    for arm in ("control", "treatment"):
+        p = Path(fd) / "prompts" / (arm + ".md")
+        parts.append(p.read_bytes() if p.exists() else b"")
+    return b"\n---\n".join(parts)
+
+
+def _arm_aggregate(arm):
+    total = arm["total"]
+    return {
+        "total": total,
+        "correct": arm["correct"],
+        "silent_error": arm["silent_error"],
+        "accuracy": arm["accuracy"],
+        "silent_rate": arm["silent_rate"],
+        "entity_correct": arm["entity_correct"],
+        "entity_accuracy": arm["entity_correct"] / total if total else 0.0,
+        "entity_silent": arm["entity_silent"],
+        "relation_correct": arm["relation_correct"],
+        "relation_accuracy": arm["relation_correct"] / total if total else 0.0,
+        "relation_silent": arm["relation_silent"],
+    }
+
+
+def build_manifest(fd, results_file, results, arms):
+    """eval 锁版本：model / prompt / 问题集 / 语料 / 语义层 + 版本与时间戳 + 汇总。
+
+    比较时排除 timestamp / run_id / aggregates（见 manifest_diff）。
+    """
+    fd = Path(fd)
+    corpus = b"\n---\n".join((fd / n).read_bytes() for n in ("schema.sql", "seed.sql"))
+    answers = json.dumps(results.get("arms") or {}, ensure_ascii=False, sort_keys=True).encode()
+    model = results.get("model") or ("simulated (hand-authored)" if results.get("simulated") else "unknown")
+    return {
+        "hygieia_version": VERSION,
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "run_id": results.get("run_id") or Path(results_file).stem,
+        "model": model,
+        "simulated": bool(results.get("simulated")),
+        "prompt_sha256": _sha256(_prompt_blob(fd)),
+        "questions_sha256": _sha256_file(fd / "questions.yaml"),
+        "corpus_sha256": _sha256(corpus),
+        "semantic_sha256": _sha256_file(fd / "semantic" / "metrics.yml"),
+        "answers_sha256": _sha256(answers),
+        "aggregates": {arm: _arm_aggregate(arms[arm]) for arm in arms},
+    }
+
+
+def manifest_diff(a, b):
+    """返回两次 manifest 的可比字段差异；空列表 = 可直接比较。"""
+    if not a or not b:
+        return list(MANIFEST_COMPARE_KEYS)
+    return [k for k in MANIFEST_COMPARE_KEYS if a.get(k) != b.get(k)]
+
+
+def write_manifest(fd, res):
+    """把本次 eval 的 manifest 写到 <fixture>/reports/manifest.json（生成物，不入库）。"""
+    out_dir = Path(fd) / "reports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "manifest.json"
+    path.write_text(json.dumps(res["manifest"], ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8", newline="\n")
+    return path
+
+
+def read_manifest(fd):
+    path = Path(fd) / "reports" / "manifest.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _gold_profile(q):
+    sql = q.get("gold_sql")
+    if not sql:
+        return None
+    try:
+        return sql_refs.profile(sql)
+    except ValueError:
+        return None
+
+
+def dimension_flags(q, ans, row, gold):
+    """entity = 表 / join 路径；relation = 指标口径（聚合 + 过滤列）。
+
+    - 判为 correct：两个维度都算对；
+    - expected=clarify 或金标不可解析：两个维度都不算对（失败不在实体/口径）；
+    - 有 SQL：entity 比对表集合，relation 比对聚合签名 + 过滤列集合；
+    - 无 SQL / 无法解析：两个维度都不算对（不可归因，不给分）。
+    """
+    if _counts_correct(row):
+        return True, True
+    if q.get("expected_behavior") == "clarify" or gold is None:
+        return False, False
+    sql = ans.get("sql")
+    if not sql:
+        return False, False
+    try:
+        cand = sql_refs.profile(sql)
+    except ValueError:
+        return False, False
+    entity = cand["tables"] == gold["tables"]
+    relation = cand["aggs"] == gold["aggs"] and cand["filters"] == gold["filters"]
+    return entity, relation
+
+
+def regression_flags(control, treatment, prev_manifest=None):
+    """回归检查：treatment 总分提升，但某个维度低于 control 或上次 run -> 标红。"""
+    flags = []
+    if treatment["accuracy"] > control["accuracy"]:
+        for dim in ("entity", "relation"):
+            cur, base = treatment[dim + "_accuracy"], control[dim + "_accuracy"]
+            if cur < base:
+                flags.append({"dimension": dim, "baseline": "control",
+                              "current": cur, "previous": base})
+    prev_t = ((prev_manifest or {}).get("aggregates") or {}).get("treatment")
+    if prev_t and treatment["accuracy"] > prev_t.get("accuracy", 0.0):
+        for dim in ("entity", "relation"):
+            cur, base = treatment[dim + "_accuracy"], prev_t.get(dim + "_accuracy", 0.0)
+            if cur < base:
+                flags.append({"dimension": dim, "baseline": "previous run",
+                              "current": cur, "previous": base})
+    return flags
+
+
 def eval_run(fixture_dir, results_path=None, trust_hints=False):
     fd = Path(fixture_dir)
     questions = load_yml(fd / "questions.yaml")["questions"]
@@ -815,6 +1163,8 @@ def eval_run(fixture_dir, results_path=None, trust_hints=False):
         results = {
             "simulated": meta.get("simulated", True),
             "note": meta.get("note", "run " + str(meta.get("run_id", results_file.name))),
+            "run_id": meta.get("run_id"),
+            "model": meta.get("model"),
             "arms": {
                 "control": json.loads((results_file / "control.json").read_text(encoding="utf-8")),
                 "treatment": json.loads((results_file / "treatment.json").read_text(encoding="utf-8")),
@@ -824,19 +1174,26 @@ def eval_run(fixture_dir, results_path=None, trust_hints=False):
         results = json.loads(results_file.read_text(encoding="utf-8"))
     conn = build_db(fd)
     marker_lang = _marker_lang(results)  # 答案语言探测：中文答案→中文关键词表，英文→英文表
+    gold = {qid: _gold_profile(q) for qid, q in qmap.items()}
 
     arms = {}
     try:
         for arm in ("control", "treatment"):
             rows = []
             for ans in results["arms"][arm]:
-                row = score_one(qmap[ans["qid"]], ans, conn, marker_lang)
+                q = qmap[ans["qid"]]
+                row = score_one(q, ans, conn, marker_lang)
                 if trust_hints and ans.get("label_hint"):  # 调试开关：以 hint 为准，不代替自动判分
                     row["label"] = ans["label_hint"]
+                entity_ok, relation_ok = dimension_flags(q, ans, row, gold.get(q["id"]))
+                row["entity_correct"] = entity_ok
+                row["relation_correct"] = relation_ok
                 rows.append(row)
             total = len(rows)
             correct = sum(1 for r in rows if _counts_correct(r))
             silent = sum(1 for r in rows if r["label"] == "silent_error")
+            entity = sum(1 for r in rows if r["entity_correct"])
+            relation = sum(1 for r in rows if r["relation_correct"])
             arms[arm] = {
                 "rows": rows,
                 "total": total,
@@ -844,20 +1201,30 @@ def eval_run(fixture_dir, results_path=None, trust_hints=False):
                 "silent_error": silent,
                 "accuracy": correct / total if total else 0.0,
                 "silent_rate": silent / total if total else 0.0,
+                "entity_correct": entity,
+                "entity_accuracy": entity / total if total else 0.0,
+                "entity_silent": sum(1 for r in rows
+                                     if r["label"] == "silent_error" and not r["entity_correct"]),
+                "relation_correct": relation,
+                "relation_accuracy": relation / total if total else 0.0,
+                "relation_silent": sum(1 for r in rows
+                                       if r["label"] == "silent_error" and not r["relation_correct"]),
             }
     finally:
         conn.close()  # 显式关闭，避免 ResourceWarning
-    return {
+    res = {
         "simulated": results.get("simulated", False),
         "note": results.get("note", ""),
         "results_file": str(results_file),
         "arms": arms,
     }
+    res["manifest"] = build_manifest(fd, results_file, results, arms)
+    return res
 
 
 # ---------------------------------------------------------------- report
 
-def render_report(fd, audit_res, rot_res, eval_res):
+def render_report(fd, audit_res, rot_res, eval_res, prev_manifest=None):
     lines = []
     lines.append(t("report_title"))
     lines.append("")
@@ -874,10 +1241,14 @@ def render_report(fd, audit_res, rot_res, eval_res):
     lines.append(t("report_rot"))
     lines.append(t("rot_counts", before=rot_res["before_count"], after=rot_res["after_count"],
                    new=rot_res["new_count"]))
+    lines.append(t("rot_new_split", new=rot_res["new_count"],
+                   structural=rot_res["new_by_category"]["structural"],
+                   semantic=rot_res["new_by_category"]["semantic"]))
     lines.append(t("report_injections", items=t("inj_sep").join(rot_res["injections"])))
     if rot_res["new_findings"]:
         for f in rot_res["new_findings"]:
-            lines.append(t("report_new", rule=f["rule"], detail=f["detail"]))
+            lines.append(t("report_new", cat=t("cat_" + finding_category(f)),
+                           rule=f["rule"], detail=f["detail"]))
     else:
         lines.append(t("report_none_new"))
     lines.append("")
@@ -889,8 +1260,37 @@ def render_report(fd, audit_res, rot_res, eval_res):
                    t=t_["correct"], tt=t_["total"], ta=t_["accuracy"]))
     lines.append(t("report_silent", c=c["silent_error"], ct=c["total"], cs=c["silent_rate"],
                    t=t_["silent_error"], tt=t_["total"], ts=t_["silent_rate"]))
+    for dim in ("entity", "relation"):
+        ct, tt = c["total"], t_["total"]
+        lines.append(t("report_" + dim + "_acc",
+                       c=c[dim + "_correct"], ct=ct, ca=c[dim + "_accuracy"],
+                       t=t_[dim + "_correct"], tt=tt, ta=t_[dim + "_accuracy"]))
+        lines.append(t("report_" + dim + "_silent",
+                       c=c[dim + "_silent"], ct=ct, cs=c[dim + "_silent"] / ct if ct else 0.0,
+                       t=t_[dim + "_silent"], tt=tt, ts=t_[dim + "_silent"] / tt if tt else 0.0))
+    lines.append("")
+    lines.append(t("report_dim_note"))
     lines.append("")
     lines.append(t("report_eval_note"))
+    lines.append("")
+    lines.append(t("report_manifest_hdr"))
+    diff = manifest_diff(eval_res.get("manifest"), prev_manifest)
+    if not prev_manifest:
+        lines.append(t("report_manifest_none"))
+    elif diff:
+        lines.append(t("report_manifest_warn", fields=", ".join(diff)))
+    else:
+        lines.append(t("report_manifest_ok"))
+    lines.append("")
+    lines.append(t("report_regression_hdr"))
+    flags = regression_flags(c, t_, prev_manifest)
+    if not flags:
+        lines.append(t("report_regression_none"))
+    for flag in flags:
+        base = (t("regress_vs_control") if flag["baseline"] == "control"
+                else t("regress_vs_prev"))
+        lines.append(t("report_regression_item", dim=t("dim_" + flag["dimension"]),
+                       cur=flag["current"], base=base, prev=flag["previous"]))
     lines.append("")
     lines.append(t("report_uncovered"))
     for item in t("report_uncovered_items"):
@@ -902,22 +1302,30 @@ def render_report(fd, audit_res, rot_res, eval_res):
 
 def report(fixture_dir):
     fd = Path(fixture_dir)
+    prev = read_manifest(fd)  # 先读上一次 eval 的 manifest，再让本次 eval 覆盖它
     a = audit(fixture_dir)
     r = rot(fixture_dir)
     e = eval_run(fixture_dir)
-    md = render_report(fd, a, r, e)
+    md = render_report(fd, a, r, e, prev)
     out = fd / "reports" / "health-report.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(md, encoding="utf-8", newline="\n")
+    write_manifest(fd, e)
+    c, t_ = e["arms"]["control"], e["arms"]["treatment"]
     return {
         "path": str(out),
         "audit_total": a["summary"]["total"],
         "audit_high": a["summary"]["counts"]["high"],
         "rot_new": r["new_count"],
-        "control_accuracy": f"{e['arms']['control']['accuracy']:.0%}",
-        "treatment_accuracy": f"{e['arms']['treatment']['accuracy']:.0%}",
-        "control_silent": f"{e['arms']['control']['silent_rate']:.0%}",
-        "treatment_silent": f"{e['arms']['treatment']['silent_rate']:.0%}",
+        "rot_new_structural": r["new_by_category"]["structural"],
+        "rot_new_semantic": r["new_by_category"]["semantic"],
+        "control_accuracy": f"{c['accuracy']:.0%}",
+        "treatment_accuracy": f"{t_['accuracy']:.0%}",
+        "control_silent": f"{c['silent_rate']:.0%}",
+        "treatment_silent": f"{t_['silent_rate']:.0%}",
+        "manifest_diff": manifest_diff(e["manifest"], prev),
+        "manifest_comparable": bool(prev) and not manifest_diff(e["manifest"], prev),
+        "regressions": regression_flags(c, t_, prev),
     }
 
 
@@ -948,9 +1356,19 @@ def print_audit(res):
 def print_rot(res):
     print(f"== rot: {res['fixture']} ==")
     print(t("rot_injections", items=t("inj_sep").join(res["injections"])))
-    print(t("rot_counts", before=res["before_count"], after=res["after_count"], new=res["new_count"]))
+    print(t("rot_new_split", new=res["new_count"],
+            structural=res["new_by_category"]["structural"],
+            semantic=res["new_by_category"]["semantic"]))
     for f in res["new_findings"]:
-        print(f"🆕 {t('sev_' + f['severity'])} {f['rule']} [{f['subject']}]：{f['detail']}")
+        cat = t("cat_" + finding_category(f))
+        print(f"🆕 [{cat}] {t('sev_' + f['severity'])} {f['rule']} [{f['subject']}]：{f['detail']}")
+    exp = res.get("expected") or {}
+    if exp.get("items"):
+        if exp["ok"]:
+            print(t("rot_expected_ok", n=len(exp["items"])))
+        else:
+            print(t("rot_expected_missing",
+                    items=t("inj_sep").join(f"{i['rule']}@{i['subject']}" for i in exp["missing"])))
 
 
 def print_eval(res, verbose=False):
@@ -969,6 +1387,15 @@ def print_eval(res, verbose=False):
     print("  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)))
     for r in rows:
         print("  ".join(c.ljust(widths[i]) for i, c in enumerate(r)))
+    c, t_ = res["arms"]["control"], res["arms"]["treatment"]
+    for dim in ("entity", "relation"):
+        print(t("eval_dim_line", dim=t("dim_" + dim),
+                cc=c[dim + "_correct"], ct=c["total"], ca=c[dim + "_accuracy"],
+                tc=t_[dim + "_correct"], tt=t_["total"], ta=t_[dim + "_accuracy"]))
+    if res.get("manifest"):
+        m = res["manifest"]
+        print(t("eval_manifest", model=m["model"], sem=m["semantic_sha256"][:12],
+                q=m["questions_sha256"][:12], pr=m["prompt_sha256"][:12], path="reports/manifest.json"))
     if verbose:
         print(t("verbose_label"))
         for arm in ("control", "treatment"):
@@ -980,6 +1407,15 @@ def print_report(res):
     print(t("report_print", total=res["audit_total"], high=res["audit_high"], new=res["rot_new"]))
     print(t("report_print_acc", c=res["control_accuracy"], t=res["treatment_accuracy"],
             cs=res["control_silent"], ts=res["treatment_silent"]))
+    print(t("rot_new_split", new=res["rot_new"],
+            structural=res["rot_new_structural"], semantic=res["rot_new_semantic"]))
+    if res.get("manifest_diff"):
+        print(t("report_manifest_warn", fields=", ".join(res["manifest_diff"])))
+    for flag in res.get("regressions") or []:
+        base = (t("regress_vs_control") if flag["baseline"] == "control"
+                else t("regress_vs_prev"))
+        print(t("report_regression_item", dim=t("dim_" + flag["dimension"]),
+                cur=flag["current"], base=base, prev=flag["previous"]))
 
 
 def fail_on(findings, level):
@@ -1160,6 +1596,7 @@ def main(argv=None):
 
     if cmd == "eval":
         res = eval_run(args.fixture_dir, args.results, args.trust_hints)
+        write_manifest(args.fixture_dir, res)
         if args.json:
             print(json.dumps(_jsonable(res), ensure_ascii=False, indent=2))
         else:

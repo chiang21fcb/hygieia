@@ -21,7 +21,17 @@ Hygieia 是一个本地运行的 Python 命令行工具，用来检查已有的�
 | 准确率 | 13/20（65%） | 20/20（100%） |
 | 静默错答率 | 7/20（35%） | 0/20（0%） |
 
-静默错答指返回了数字，没有报错，也没有澄清，用户无法察觉。这是 `eval` 的核心指标。对照组答错的 7 道题里，几道有代表性的：
+静默错答指返回了数字，没有报错，也没有澄清，用户无法察觉。这是 `eval` 的核心指标。
+
+每道题另外按两个维度判分：**entity**（表 / join 路径）与 **relation**（指标口径：聚合 + 过滤）。demo 上 control 的 entity 是 17/20、relation 是 13/20，treatment 两个维度都是 20/20：失败主要是口径错，不是找错表。`eval` 会写一份 manifest（`reports/manifest.json`），锁住模型、prompt 哈希、问题集哈希、语料哈希、语义层哈希与工具版本；这些字段不一致时 `report` 会明确提示两次 run 不可直接比较，并在「总分上升、某维度下降」时单独标红：
+
+| 版本锁定项 | 内容 |
+|---|---|
+| prompt | `fixtures/ecom/prompts/{control,treatment}.md` 的 sha256 |
+| 问题集 / 语料 / 语义层 | `questions.yaml`、`schema.sql`+`seed.sql`、`semantic/metrics.yml` 的 sha256 |
+| model | demo 为 `simulated (hand-authored)`，live 取 `meta.json` |
+
+对照组答错的 7 道题里，几道有代表性的：
 
 | 题 | 问题 | 无语义层答 | 正确口径 |
 |---|---|---|---|
@@ -33,7 +43,7 @@ Hygieia 是一个本地运行的 Python 命令行工具，用来检查已有的�
 | q12 | 平均客单价是多少 | 155（含取消单） | 176 |
 | q20 | 净收入是否含运费 | 直接答“包含” | 未定义运费，应澄清 |
 
-`audit` 在同一份语义层上检出 7 条问题：3 条高危（R1 同义冲突、R3 join 歧义、R4 悬空引用），4 条中危（R5 证据缺失）。`rot` 注入三类漂移（列改名、定义篡改、新增孤儿指标）后重跑 `audit`，新增捕获 4 条。定义篡改命中的 `refund_total` 悬空引用在漂移前就已存在，按前后集合差的规则不计为新增。
+`audit` 在同一份语义层上检出 7 条问题：3 条高危（R1 同义冲突、R3 join 歧义、R4 悬空引用），4 条中危（R5 证据缺失）。`rot` 注入五类漂移后重跑 `audit`，新增捕获 6 条，分两类：结构漂移 4 条（列改名、定义篡改、新增孤儿指标），语义腐烂 2 条（别名指向已废弃指标、一个指标合并两个新鲜度矛盾的来源）。定义篡改命中的 `refund_total` 悬空引用在漂移前就已存在，按前后集合差的规则不计为新增。
 
 这次 demo 的两臂答案由人工编写，`demo_results.json` 顶部标注 `simulated: true`，不是模型现场生成。金标 SQL 的数字来自种子数据的真实执行（内存 SQLite），判分逻辑按契约第十三节运行。`net_revenue` 的表达式 `sum(orders.net_amount)` 可以在 seed 上直接执行，treatment 答案与它一致。R4 的埋雷放在独立的 `refund_total` 上，不参与 eval 金标路径。
 
@@ -52,14 +62,14 @@ Hygieia 是一个本地运行的 Python 命令行工具，用来检查已有的�
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../../docs/figures/pipeline-dark.svg">
-  <img src="../../docs/figures/pipeline.svg" width="880" alt="Hygieia 流程：ecom fixture 供给 audit、rot、eval；audit 检查 R1–R7，rot 在内存注入三类漂移，eval 用可执行的金标 SQL 判两臂答案；report 汇总三者，写出 reports/health-report.md。adapt dbt 与 impact 是 v1 的可选工具。">
+  <img src="../../docs/figures/pipeline.svg" width="880" alt="Hygieia 流程：ecom fixture 供给 audit、rot、eval；audit 检查 R1–R9，rot 在内存注入结构漂移与语义腐烂，eval 用可执行的金标 SQL 判两臂答案；report 汇总三者，写出 reports/health-report.md。adapt dbt 与 impact 是 v1 的可选工具。">
 </picture>
 
 四个主命令：
 
 | 命令 | 做什么 | 输入 | 输出 |
 |---|---|---|---|
-| `audit` | 静态诊断 7 类问题（R1 同义冲突、R2 孤儿指标、R3 join 歧义、R4 悬空引用、R5 证据缺失、R6 缺描述、R7 冗余） | `semantic/metrics.yml` + `schema.sql` | 每条问题带规则、危险、修复建议 |
+| `audit` | 静态诊断 9 类问题（R1 同义冲突、R2 孤儿指标、R3 join 歧义、R4 悬空引用、R5 证据缺失、R6 缺描述、R7 冗余、R8 别名指向废弃指标、R9 来源新鲜度冲突） | `semantic/metrics.yml` + `schema.sql` | 每条问题带规则、危险、修复建议 |
 | `eval` | 两臂对照评测：同一批问题，分别在没有语义层和有语义层的条件下回答 | `questions.yaml` + 两臂答案（默认 `demo_results.json`） | 准确率与静默错答率 |
 | `rot` | 在内存副本注入三类漂移，重跑 audit，报告新增捕获（默认不写回磁盘） | 同上 | 漂移前、漂移后、新增捕获 |
 | `report` | 完整体检报告，含高危和中危、腐烂模拟、对照评测三块 | 同上 | `reports/health-report.md` |
@@ -137,7 +147,7 @@ hygieia/
 
 1. 两臂演示答案由人工编写，`demo_results.json` 顶部已标注。数字来自 SQL 真实执行，但答案不是模型现场生成。真实评测需按协议在 coding agent 里现跑，产物存 `fixtures/ecom/runs/<时间戳>/`（协议见 [docs/eval-live.md](../../docs/eval-live.md)）；
 2. 引用抽取使用 sqlglot AST（sqlite 方言），覆盖列引用和 join 的 `on_expr`。多方言解析、dbt `ref()`/宏、CTE 别名尚未支持；无法解析的表达式会上报为高危 R4，不会静默跳过；
-3. 只覆盖 7 类静态问题，深层口径语义、权限、动作安全不在范围内；
+3. 覆盖 9 类静态问题（R1–R9），深层口径语义、权限、动作安全不在范围内；
 4. 只支持单个 schema 目录和单一方言，SQLite 友好的子集即可跑通 fixture；
 5. 没有界面、多租户或行动层；
 6. v0 以 `metrics.yml` 契约为原生布局。`adapt dbt` 是只读的下游适配器，接受 dbt/MetricFlow YAML 子集，输入假设和映射见 [docs/adapters.md](../../docs/adapters.md)。写回、bootstrap 和其它生态明确不做；
@@ -153,6 +163,8 @@ hygieia/
 | R4 | 方言函数被当成列名 | 公共表表达式别名、宏/模板 |
 | R5 | 证据在仓库之外 | 过期证据仍算有 |
 | R6/R7 | 短而精准的描述 | 长篇但仍空洞的套话 |
+| R8 | 迁移期把旧指标 id 当别名（`replaced_by` 指向当前指标时不报） | 别名指向已从文件删除的指标 |
+| R9 | 多来源已显式标注 `authoritative: true`（不报） | 新鲜度矛盾只存在于数据、语义层没声明 |
 
 ## 路线图
 

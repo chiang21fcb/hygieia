@@ -12,7 +12,7 @@ fixture：6 表电商 schema（customers / orders / order_items / products / pay
 | **静默错答率** | **7/20（35%）** | **0/20（0%）** |
 
 - audit：7 条问题（3 高危：R1 同义冲突、R3 join 歧义、R4 悬空引用；4 中危：R5 证据缺失）
-- rot：7 → 11，**新增捕获 4**（列改名悬空 ×2 + 孤儿指标 R2 + 缺证据 R5；定义篡改命中的是漂移前已存在的 R4，不计新增）
+- rot：7 → 13，**新增捕获 6**（结构漂移 4：列改名悬空 ×2 + 孤儿指标 R2 + 缺证据 R5；语义腐烂 2：stale alias R8 + 来源新鲜度冲突 R9。定义篡改命中的是漂移前已存在的 R4，不计新增）
 
 透明度：金标 SQL 的数字来自种子数据真实执行（内存 SQLite）；两臂答案由人工模拟（`demo_results.json` 顶部 `simulated: true`）；判分逻辑为真实代码，按第十三节执行。
 
@@ -53,11 +53,11 @@ metrics:
     grain: order
 ```
 
-**解析启发式（v0，可简陋但要可测）：**
+**解析规则（v0；sqlglot AST，可测）：**
 
-- 从 `expr` 用正则提取 `ident.ident` 作为表.列引用；提取单独出现的已知表名；
+- 用 sqlglot 的 AST 从 `expr` 提取表.列引用（sqlite 方言；`scripts/sql_refs.py`）；解析失败视为不可解析，显式上报，绝不静默忽略；
 - `joins[].left/right` 必须是 schema 中的表；
-- 从 `joins[].on_expr` 用同一正则提取表.列引用并逐项校验：表或列不存在 → `R4-dangling-ref`（subject 为 `join <left>-><right>`）；
+- 用同一套 AST 从 `joins[].on_expr` 提取表.列引用并逐项校验：表或列不存在 → `R4-dangling-ref`（subject 为 `join <left>-><right>`）；
 - synonym 比较前做 `strip` + 小写（中文同义词保持原样精确匹配即可）；
 - description 过短：`< 8` 个字符（可配置）→ R6；若 description 去掉标点后 ⊆ `{table, column, metric id, name}` 的简单拼接 → R7。
 
@@ -100,7 +100,7 @@ questions:
 
 | 严重度 | 含义 | 默认归属 |
 |---|---|---|
-| 高危 | 可直接导致错数或静默选错口径 | R1, R3, R4；（R2 在 domain 不存在时） |
+| 高危 | 可直接导致错数或静默选错口径 | R1, R3, R4, R8, R9；（R2 在 domain 不存在时） |
 | 中危 | 可信度/可发现性受损，未必当次算错 | R5；R2 无 table 绑定但 domain 存在 |
 | 低危 | 可读性/上下文质量 | R6, R7 |
 
@@ -128,6 +128,8 @@ questions:
 | R4 | 方言函数被当成列名 | CTE 别名、宏/Jinja |
 | R5 | evidence 在仓外 | 过期证据仍算「有」 |
 | R6/R7 | 短而精准的描述 | 长篇但仍空洞的套话 |
+| R8 | 迁移期把旧指标 id 当别名（已声明 `replaced_by` 指向当前指标时不报） | 别名指向已删除（不在文件里）的指标 |
+| R9 | 多来源已显式标注 `authoritative: true`（不报） | 新鲜度矛盾只体现在数据里、语义层没声明 |
 
 ---
 
@@ -154,10 +156,38 @@ questions:
 4. **静默错答率** = `silent_error` 题数 / 总题数。
 5. `honest_error` / `abstain` **不计**入静默错答，也不计入准确率分子（即算错/未答，但不「静默」）。
 
-### 13.3 演示期望（ecom / 模拟答案）
+### 13.3 分项打分（entity / relation）
 
-- control：准确率 13/20，静默错答 7/20
-- treatment：准确率 20/20，静默错答 0/20
+每道题的判分拆成两个维度，用于区分「找错表」和「口径算错」：
+
+| 维度 | 含义 | 判定方式 |
+|---|---|---|
+| entity | 实体 / 表 / join 路径是否正确 | 候选 SQL 引用的表集合是否等于金标 SQL 的表集合（sqlglot AST） |
+| relation | 指标口径（聚合 + 过滤）是否正确 | 聚合成名（函数名 + 列名）与 WHERE 过滤列集合是否等于金标 |
+
+规则：判为 `correct` 的题两个维度都算对；`expected_behavior: clarify`、金标不可解析、候选无 SQL 时，两个维度都不算对（不可归因，不给分）。
+报告输出每臂在 entity / relation 上的准确率与静默错答率，并做**回归检查**：treatment 总分高于 control（或高于上次 run）但某维度低于基线时单独标红。
+
+### 13.4 Run manifest（锁版本）
+
+每次 `eval` 都会写出 `reports/manifest.json`，记录：
+
+| 字段 | 含义 |
+|---|---|
+| `hygieia_version` | 本工具版本 |
+| `model` | 作答模型（demo 为 `simulated (hand-authored)`，live 取自 `meta.json`） |
+| `prompt_sha256` | `fixtures/<fx>/prompts/{control,treatment}.md` 的合并哈希 |
+| `questions_sha256` / `corpus_sha256` / `semantic_sha256` | 问题集、语料（schema+seed）、语义层的快照哈希 |
+| `timestamp` / `run_id` | 时间戳与 run 标识（比较时忽略） |
+| `aggregates` | 两臂总分与分项汇总（回归检查用） |
+
+比较两个 manifest 时只比 `hygieia_version / model / prompt_sha256 / questions_sha256 / corpus_sha256 / semantic_sha256`；
+任一不同即视为**不可直接比较**，`report` 必须明确提示。
+
+### 13.5 演示期望（ecom / 模拟答案）
+
+- control：准确率 13/20，静默错答 7/20；entity 17/20，relation 13/20
+- treatment：准确率 20/20，静默错答 0/20；entity 20/20，relation 20/20
 
 实现后应用同一评分器跑 `demo_results.json`，断言上述数字；若 fixture 微调导致金标变化，同步更新本文档与 README 中的数字，禁止只改代码不改文档。
 
@@ -172,6 +202,11 @@ questions:
 | 列改名 | schema 侧 `orders.total_amount` 视为不存在（或改名），语义层仍引用 | R4 ×2（revenue、avg_order_value 等） |
 | 定义篡改 | `refund_total.expr` 追加 `refunds.tax` 引用 | 无新增（该 R4 漂移前已存在；只统计 rot 后新增 finding id） |
 | 孤儿指标 | 新增 `gross_margin`，`domain: finance`（domains 无此 id），无 evidence | R2 + R5 |
+| stale alias | 新增已废弃指标 `revenue_v1`，把别名 `revenue_v1` 挂到在用指标 `gmv` | R8（high） |
+| 来源新鲜度冲突 | `revenue.sources` 合并 `orders`（order_date，滞后 1 天）与 `orders_snapshot`（snapshot_date，滞后 30 天） | R9（high） |
+
+两类语义腐烂的期望 finding 写入 `fixtures/ecom/rot/expected_findings.json`，`rot` 会逐条校验是否捕获；
+新增捕获按 `structural` / `semantic` 分类输出。
 
 **新增捕获数** = `|findings_after - findings_before|`（按 `rule+subject+detail` 去重后的集合差）。目标 = **4**（列改名悬空 ×2 + 孤儿指标 R2 + 缺证据 R5；定义篡改命中的已有 R4 不计新增）。
 
