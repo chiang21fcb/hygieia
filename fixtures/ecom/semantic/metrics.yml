@@ -1,0 +1,74 @@
+# Hygieia demo fixture（ecom）：故意埋雷的语义层
+# 埋雷：R1 同义冲突（营收）、R3 join 歧义（orders->customers ×2）、
+#       R4 悬空引用（refund_total -> refunds 表）、R5 证据缺失 ×4
+# 契约见 docs/contract.md 第十一节
+# 注意：join 条件字段名是 on_expr —— YAML 1.1 会把裸 `on` 解析成布尔键 True
+version: 1
+
+domains:
+  - id: sales
+    description: "销售域：订单与收入相关指标"
+
+# R3：同一对 (left, right) 有两条 join 路径 -> join 歧义（第二条为故意埋雷）
+joins:
+  - left: orders
+    right: customers
+    on_expr: "orders.customer_id = customers.id"
+  - left: orders
+    right: customers
+    on_expr: "orders.customer_id = customers.id AND orders.status = 'delivered'"
+
+metrics:
+  - id: revenue
+    name: 收入
+    synonyms: ["营收", "销售额"]   # R1：营收 与 net_revenue 冲突
+    domain: sales
+    description: "所有订单的总金额，包含取消订单"
+    expr: "sum(orders.total_amount)"
+    table: orders
+    grain: order
+    # 无 evidence -> R5
+
+  - id: net_revenue
+    name: 净收入
+    synonyms: ["营收", "净收入", "总收入"]   # R1：营收 与 revenue 冲突
+    domain: sales
+    description: "排除取消订单后的净收入，业务口径首选"
+    expr: "sum(orders.net_amount)"   # 可在 seed 上直接执行：全期 1760、上月 1110
+    table: orders
+    grain: order
+    # 无 evidence -> R5
+
+  - id: avg_order_value
+    name: 平均客单价
+    synonyms: ["客单价", "平均订单金额"]
+    domain: sales
+    description: "每笔非取消订单的平均金额"
+    expr: "sum(case when orders.status != 'canceled' then orders.total_amount else 0 end) / count(case when orders.status != 'canceled' then orders.id end)"
+    table: orders
+    grain: order
+    # 无 evidence -> R5
+
+  - id: order_count
+    name: 订单数
+    synonyms: ["订单量", "下单数"]
+    domain: sales
+    description: "全部订单的笔数，包含取消订单"
+    expr: "count(orders.id)"
+    table: orders
+    grain: order
+    # 无 evidence -> R5
+
+  # 单独埋的 R4 悬空引用：refund_total 引用了 schema 中不存在的 refunds 表。
+  # 它不参与 eval 的金标路径——treatment 答案不依赖它，只用来演示 audit 能抓到。
+  - id: refund_total
+    name: 退款金额
+    synonyms: ["退款"]
+    domain: sales
+    description: "按退款表统计的退款总额"
+    expr: "sum(refunds.amount)"   # R4：refunds 表不存在
+    evidence:
+      - type: dashboard
+        ref: "dashboard/refund_total"
+    table: payments
+    grain: order

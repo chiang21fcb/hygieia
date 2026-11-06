@@ -1,0 +1,50 @@
+{
+  "simulated": true,
+  "note": "agent answers are hand-authored for demo; SQL execution results are real (run on seed.sql in SQLite)",
+  "arms": {
+    "control": [
+      {"qid": "q01", "sql": "SELECT COUNT(*) FROM customers", "value": 6, "raw": "客户表共 6 位", "label_hint": "correct"},
+      {"qid": "q02", "sql": "SELECT COUNT(*) FROM products WHERE status = 'active'", "value": 4, "raw": "在售商品 4 个", "label_hint": "correct"},
+      {"qid": "q03", "sql": "SELECT COUNT(*) FROM orders", "value": 12, "raw": "订单表共 12 笔", "label_hint": "correct"},
+      {"qid": "q04", "sql": "SELECT AVG(rating) FROM reviews", "value": 3.6, "raw": "平均评分 3.6", "label_hint": "correct"},
+      {"qid": "q05", "sql": "SELECT SUM(total_amount) FROM orders WHERE order_date >= '2026-06-01' AND order_date <= '2026-06-30'", "value": 650, "raw": "6 月总额 650", "label_hint": "correct"},
+      {"qid": "q06", "sql": "SELECT COUNT(*) FROM payments", "value": 12, "raw": "支付记录 12 条", "label_hint": "correct"},
+      {"qid": "q07", "sql": "SELECT SUM(total_amount) FROM orders WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31'", "value": 1210, "raw": "算总金额不扣取消单：1210", "label_hint": "silent_error"},
+      {"qid": "q08", "sql": "SELECT SUM(total_amount) FROM orders", "value": 1860, "raw": "算全部订单：1860", "label_hint": "silent_error"},
+      {"qid": "q09", "sql": "SELECT COUNT(*) FROM customers", "value": 6, "raw": "数客户表：6", "label_hint": "silent_error"},
+      {"qid": "q10", "sql": "SELECT SUM(total_amount) FROM orders", "value": 1860, "raw": "用 revenue 口径：1860", "label_hint": "silent_error"},
+      {"qid": "q11", "sql": null, "value": 0.25, "raw": "没有访问数据，按行业经验估计转化率约 0.25", "label_hint": "silent_error"},
+      {"qid": "q12", "sql": "SELECT SUM(total_amount) / COUNT(*) FROM orders", "value": 155, "raw": "含取消单：155", "label_hint": "silent_error"},
+      {"qid": "q13", "sql": "SELECT SUM(amount) FROM payments WHERE status = 'success'", "value": 1760, "raw": "支付成功总额 1760", "label_hint": "correct"},
+      {"qid": "q14", "sql": "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled' GROUP BY customer_id ORDER BY SUM(total_amount) DESC LIMIT 1", "value": 390, "raw": "最高客户消费 390", "label_hint": "correct"},
+      {"qid": "q15", "sql": "SELECT COUNT(*) FROM reviews WHERE rating <= 2", "value": 1, "raw": "差评 1 条", "label_hint": "correct"},
+      {"qid": "q16", "sql": "SELECT COUNT(DISTINCT status) FROM orders", "value": 2, "raw": "两种状态", "label_hint": "correct"},
+      {"qid": "q17", "sql": "SELECT COUNT(*) FROM orders WHERE order_date >= '2026-06-01' AND order_date <= '2026-06-30'", "value": 2, "raw": "6 月 2 笔订单", "label_hint": "correct"},
+      {"qid": "q18", "sql": "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31'", "value": 5, "raw": "7 月 5 位客户", "label_hint": "correct"},
+      {"qid": "q19", "sql": "SELECT SUM(total_amount) FROM orders WHERE status = 'canceled'", "value": 100, "raw": "取消订单合计 100", "label_hint": "correct"},
+      {"qid": "q20", "sql": null, "value": "包含", "raw": "包含运费（订单金额默认含运费）", "label_hint": "silent_error"}
+    ],
+    "treatment": [
+      {"qid": "q01", "sql": "SELECT COUNT(*) FROM customers", "value": 6, "raw": "客户表共 6 位", "label_hint": "correct"},
+      {"qid": "q02", "sql": "SELECT COUNT(*) FROM products WHERE status = 'active'", "value": 4, "raw": "在售商品 4 个", "label_hint": "correct"},
+      {"qid": "q03", "sql": "SELECT COUNT(*) FROM orders", "value": 12, "raw": "订单表共 12 笔", "label_hint": "correct"},
+      {"qid": "q04", "sql": "SELECT AVG(rating) FROM reviews", "value": 3.6, "raw": "平均评分 3.6", "label_hint": "correct"},
+      {"qid": "q05", "sql": "SELECT SUM(total_amount) FROM orders WHERE order_date >= '2026-06-01' AND order_date <= '2026-06-30'", "value": 650, "raw": "6 月总额 650", "label_hint": "correct"},
+      {"qid": "q06", "sql": "SELECT COUNT(*) FROM payments", "value": 12, "raw": "支付记录 12 条", "label_hint": "correct"},
+      {"qid": "q07", "sql": "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled' AND order_date >= '2026-07-01' AND order_date <= '2026-07-31'", "value": 1110, "raw": "扣取消单：1110", "label_hint": "correct"},
+      {"qid": "q08", "sql": "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled'", "value": 1760, "raw": "排除取消单：1760", "label_hint": "correct"},
+      {"qid": "q09", "sql": "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date >= '2026-07-02'", "value": 5, "raw": "30 天内下单客户 5 位", "label_hint": "correct"},
+      {"qid": "q10", "sql": "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled'", "value": 1760, "raw": "走 net_revenue 口径：1760", "label_hint": "correct"},
+      {"qid": "q11", "sql": null, "value": null, "raw": "数据中没有访问（visit）信息，无法计算转化率，需要补充埋点数据后才能回答", "label_hint": "correct"},
+      {"qid": "q12", "sql": "SELECT SUM(total_amount) / COUNT(*) FROM orders WHERE status != 'canceled'", "value": 176, "raw": "排除取消单：176", "label_hint": "correct"},
+      {"qid": "q13", "sql": "SELECT SUM(amount) FROM payments WHERE status = 'success'", "value": 1760, "raw": "支付成功总额 1760", "label_hint": "correct"},
+      {"qid": "q14", "sql": "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled' GROUP BY customer_id ORDER BY SUM(total_amount) DESC LIMIT 1", "value": 390, "raw": "最高客户消费 390", "label_hint": "correct"},
+      {"qid": "q15", "sql": "SELECT COUNT(*) FROM reviews WHERE rating <= 2", "value": 1, "raw": "差评 1 条", "label_hint": "correct"},
+      {"qid": "q16", "sql": "SELECT COUNT(DISTINCT status) FROM orders", "value": 2, "raw": "两种状态", "label_hint": "correct"},
+      {"qid": "q17", "sql": "SELECT COUNT(*) FROM orders WHERE order_date >= '2026-06-01' AND order_date <= '2026-06-30'", "value": 2, "raw": "6 月 2 笔订单", "label_hint": "correct"},
+      {"qid": "q18", "sql": "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31'", "value": 5, "raw": "7 月 5 位客户", "label_hint": "correct"},
+      {"qid": "q19", "sql": "SELECT SUM(total_amount) FROM orders WHERE status = 'canceled'", "value": 100, "raw": "取消订单合计 100", "label_hint": "correct"},
+      {"qid": "q20", "sql": null, "value": null, "raw": "语义层未定义运费口径，无法确认净收入是否包含运费，请确认后回答", "label_hint": "correct"}
+    ]
+  }
+}

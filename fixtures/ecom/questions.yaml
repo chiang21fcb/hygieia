@@ -1,0 +1,163 @@
+# Hygieia demo fixture（ecom）：20 题中文问题集（含金标 SQL 与期望行为）
+# 契约见 docs/contract.md 第十一节 11.1
+# 参考日：2026-08-01；「上个月」= 2026-07；30 天活跃窗口 = order_date >= '2026-07-02'
+questions:
+  - id: q01
+    text: "一共有多少位客户？"
+    gold_sql: "SELECT COUNT(*) FROM customers"
+    gold_value: 6
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "count"]
+
+  - id: q02
+    text: "有多少个在售商品？"
+    gold_sql: "SELECT COUNT(*) FROM products WHERE status = 'active'"
+    gold_value: 4
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "count", "filter"]
+
+  - id: q03
+    text: "一共有多少笔订单（含取消）？"
+    gold_sql: "SELECT COUNT(*) FROM orders"
+    gold_value: 12
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "count"]
+
+  - id: q04
+    text: "已提交评价的平均评分是多少？"
+    gold_sql: "SELECT AVG(rating) FROM reviews"
+    gold_value: 3.6
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "avg"]
+
+  - id: q05
+    text: "6 月份的销售总额是多少？"
+    gold_sql: "SELECT SUM(total_amount) FROM orders WHERE order_date >= '2026-06-01' AND order_date <= '2026-06-30'"
+    gold_value: 650
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "month_filter"]
+
+  - id: q06
+    text: "一共有多少条支付记录？"
+    gold_sql: "SELECT COUNT(*) FROM payments"
+    gold_value: 12
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "count"]
+
+  - id: q07
+    text: "上个月（7 月）的净收入是多少？"
+    gold_sql: "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled' AND order_date >= '2026-07-01' AND order_date <= '2026-07-31'"
+    gold_value: 1110
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["ambiguity", "cancel_filter"]
+
+  - id: q08
+    text: "总收入是多少？"
+    gold_sql: "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled'"
+    gold_value: 1760
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["ambiguity", "cancel_filter"]
+
+  - id: q09
+    text: "有多少活跃客户（30 天内下过单）？"
+    gold_sql: "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date >= '2026-07-02'"
+    gold_value: 5
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["ambiguity", "active_window"]
+
+  - id: q10
+    text: "营收是多少？"
+    gold_sql: "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled'"
+    gold_value: 1760
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["ambiguity", "synonym"]
+
+  - id: q11
+    text: "下单转化率是多少？"
+    gold_sql: null
+    gold_value: null
+    expected_behavior: clarify
+    clarify_reason: "数据中没有访问/浏览（visit）信息，无法计算转化率"
+    tags: ["clarify", "missing_data"]
+
+  - id: q12
+    text: "平均客单价是多少？"
+    gold_sql: "SELECT SUM(total_amount) / COUNT(*) FROM orders WHERE status != 'canceled'"
+    gold_value: 176
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["ambiguity", "cancel_filter"]
+
+  - id: q13
+    text: "支付成功（未退款）的订单总金额是多少？"
+    gold_sql: "SELECT SUM(amount) FROM payments WHERE status = 'success'"
+    gold_value: 1760
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "sum", "filter"]
+
+  - id: q14
+    text: "累计消费最高的客户消费了多少钱？"
+    gold_sql: "SELECT SUM(total_amount) FROM orders WHERE status != 'canceled' GROUP BY customer_id ORDER BY SUM(total_amount) DESC LIMIT 1"
+    gold_value: 390
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "top_n"]
+
+  - id: q15
+    text: "评分不超过 2 分的差评有多少条？"
+    gold_sql: "SELECT COUNT(*) FROM reviews WHERE rating <= 2"
+    gold_value: 1
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "count", "filter"]
+
+  - id: q16
+    text: "出现过几种订单状态？"
+    gold_sql: "SELECT COUNT(DISTINCT status) FROM orders"
+    gold_value: 2
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "distinct"]
+
+  - id: q17
+    text: "6 月份一共下了多少笔订单？"
+    gold_sql: "SELECT COUNT(*) FROM orders WHERE order_date >= '2026-06-01' AND order_date <= '2026-06-30'"
+    gold_value: 2
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "month_filter"]
+
+  - id: q18
+    text: "7 月份有几位不同客户下过单？"
+    gold_sql: "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date >= '2026-07-01' AND order_date <= '2026-07-31'"
+    gold_value: 5
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "distinct", "month_filter"]
+
+  - id: q19
+    text: "被取消的订单金额合计是多少？"
+    gold_sql: "SELECT SUM(total_amount) FROM orders WHERE status = 'canceled'"
+    gold_value: 100
+    expected_behavior: answer
+    clarify_reason: null
+    tags: ["simple", "sum", "filter"]
+
+  - id: q20
+    text: "净收入是否包含运费？"
+    gold_sql: null
+    gold_value: null
+    expected_behavior: clarify
+    clarify_reason: "语义层未定义运费口径，无法确认净收入是否包含运费"
+    tags: ["clarify", "undefined_caliber"]
