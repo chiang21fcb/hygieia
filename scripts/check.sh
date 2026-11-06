@@ -11,6 +11,9 @@ python scripts/hygieia.py eval fixtures/ecom
 python scripts/hygieia.py rot fixtures/ecom
 python scripts/hygieia.py report fixtures/ecom
 
+# impact 冒烟：空 diff → 无受影响指标（信息性，不失败）
+printf '' | python scripts/hygieia.py impact fixtures/ecom --diff - >/dev/null
+
 # --fail-on high must exit 1: the ecom fixture deliberately has 3 high findings
 set +e
 python scripts/hygieia.py audit fixtures/ecom --fail-on high

@@ -1,0 +1,8 @@
+{
+  "run_id": "live-20261106-dsh",
+  "timestamp": "2026-11-06T18:30:00+08:00",
+  "model": "dsh-coding-agent (deepseek-v4-flash)",
+  "simulated": false,
+  "prompt_version": "3506400 (repo main at run time)",
+  "note": "Answers produced live by the built-in coding agent acting as the answering model. Control arm: reasoned from schema.sql + seed data only (no metrics.yml). Treatment arm: semantic/metrics.yml + schema; metric exprs/synonyms/joins used where expressible, clarification/refusal where the layer cannot express (q11 conversion rate, q20 shipping scope). Every submitted SQL was executed against the in-memory SQLite seed; value = executed result; raw = the agent's final answer. The answering agent did not consult questions.yaml gold_sql or demo_results.json while composing answers."
+}

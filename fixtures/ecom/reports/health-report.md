@@ -3,15 +3,15 @@
 - Fixture: ecom (6 tables, 20 Chinese questions)
 
 ## 🔴 High (3)
-- R1-synonym-conflict: synonym "营收" maps to multiple metrics: revenue, net_revenue — a query may silently pick the wrong caliber
-- R3-join-ambiguity: orders -> customers has 2 join paths — an agent may pick the wrong path, doubling or dropping amounts
-- R4-dangling-ref: metric 'refund_total' references a missing table 'refunds' — this metric is guaranteed to be wrong
+- R1-synonym-conflict: synonym "营收" maps to multiple metrics: revenue, net_revenue; a query may silently pick the wrong caliber
+- R3-join-ambiguity: orders -> customers has 2 join paths; an agent may pick the wrong path, doubling or dropping amounts
+- R4-dangling-ref: metric 'refund_total' references a missing table 'refunds'; this metric is guaranteed to be wrong
 
 ## 🟠 Medium (4)
-- R5-no-evidence: metric 'revenue' has no source evidence (doc/comment/dashboard) — facts cannot be distinguished from guesses
-- R5-no-evidence: metric 'net_revenue' has no source evidence (doc/comment/dashboard) — facts cannot be distinguished from guesses
-- R5-no-evidence: metric 'avg_order_value' has no source evidence (doc/comment/dashboard) — facts cannot be distinguished from guesses
-- R5-no-evidence: metric 'order_count' has no source evidence (doc/comment/dashboard) — facts cannot be distinguished from guesses
+- R5-no-evidence: metric 'revenue' has no source evidence (doc/comment/dashboard); facts cannot be distinguished from guesses
+- R5-no-evidence: metric 'net_revenue' has no source evidence (doc/comment/dashboard); facts cannot be distinguished from guesses
+- R5-no-evidence: metric 'avg_order_value' has no source evidence (doc/comment/dashboard); facts cannot be distinguished from guesses
+- R5-no-evidence: metric 'order_count' has no source evidence (doc/comment/dashboard); facts cannot be distinguished from guesses
 
 ## 🟡 Low (0)
 - (none)
@@ -30,7 +30,7 @@ Before: 7 findings | After: 11 | New captures: 4
 | Accuracy | 13/20 (65%) | 20/20 (100%) |
 | Silent-error rate | 7/20 (35%) | 0/20 (0%) |
 
-> Note: this demo's evaluation is simulated two-arm answers + real SQL scoring — the answers come from demo_results.json (simulated: true, hand-authored); the numbers come from real gold/candidate SQL execution on in-memory SQLite; not a live LLM evaluation.
+> Note: this demo's evaluation combines simulated two-arm answers with real SQL scoring. The answers come from demo_results.json (simulated: true, hand-authored); the numbers come from real gold/candidate SQL execution on in-memory SQLite; this is not a live LLM evaluation.
 
 ## Uncovered drift (v1+)
 - synonym drift (a good word pointing at a bad metric)

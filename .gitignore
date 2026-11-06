@@ -4,4 +4,9 @@ __pycache__/
 .venv/
 venv/
 **/metrics.rot.yml
-fixtures/*/runs/
+fixtures/*/runs/*
+!fixtures/*/runs/README.md
+!fixtures/ecom/runs/live-20261106-dsh/
+!fixtures/ecom/runs/live-20261106-dsh/**
+
+*.egg-info/

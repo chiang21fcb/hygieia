@@ -273,5 +273,189 @@ class TestAdaptDbt(unittest.TestCase):
         self.assertIn("orders->customers", [s["item"] for s in res["skipped"]])
 
 
+class TestEnglishMarkers(unittest.TestCase):
+    """P3：英文关键词表——答案语言探测选择，中文表回归不受影响。"""
+
+    def test_en_clarify_marker_is_correct(self):
+        q = {"id": "q_en1", "expected_behavior": "clarify"}
+        row = hygieia.score_one(q, {"qid": "q_en1", "raw": "I cannot compute this — insufficient data"},
+                                None, lang="en")
+        self.assertEqual(row["label"], "clarify")
+        self.assertTrue(hygieia._counts_correct(row))
+
+    def test_en_abstain_marker_counts(self):
+        q = {"id": "q_en2", "expected_behavior": "clarify"}
+        row = hygieia.score_one(q, {"qid": "q_en2", "raw": "I don't know"}, None, lang="en")
+        self.assertEqual(row["label"], "abstain")
+        self.assertTrue(hygieia._counts_correct(row))  # 带说明性弃权 → 计入分子
+
+    def test_en_filler_not_correct(self):
+        q = {"id": "q_en3", "expected_behavior": "clarify"}
+        row = hygieia.score_one(q, {"qid": "q_en3", "raw": "ok"}, None, lang="en")
+        self.assertEqual(row["label"], "abstain")
+        self.assertFalse(hygieia._counts_correct(row))  # H2 收紧：敷衍回复不算
+
+    def test_zh_markers_unaffected(self):
+        q = {"id": "q_zh1", "expected_behavior": "clarify"}
+        row = hygieia.score_one(q, {"qid": "q_zh1", "raw": "数据不足，无法计算"}, None, lang="zh")
+        self.assertEqual(row["label"], "clarify")
+        self.assertTrue(hygieia._counts_correct(row))
+
+
+class TestLiveRunDir(unittest.TestCase):
+    """P3：--results 支持 runs/<id> 目录（meta + control + treatment），demo 单文件向后兼容。"""
+
+    def test_run_dir_scores_both_arms(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "run-live"
+            d.mkdir()
+            (d / "meta.json").write_text(json.dumps(
+                {"run_id": "run-live", "model": "fake-agent", "simulated": True,
+                 "note": "fake"}, ensure_ascii=False), encoding="utf-8")
+            (d / "control.json").write_text(json.dumps(
+                [{"qid": "q07", "value": 1210, "raw": "1210"}], ensure_ascii=False), encoding="utf-8")
+            (d / "treatment.json").write_text(json.dumps(
+                [{"qid": "q07", "sql": "SELECT SUM(net_amount) FROM orders "
+                                       "WHERE order_date >= '2026-07-01' AND order_date < '2026-08-01'"}],
+                ensure_ascii=False), encoding="utf-8")
+            res = hygieia.eval_run(FIX, str(d))
+            c = res["arms"]["control"]["rows"][0]
+            t = res["arms"]["treatment"]["rows"][0]
+            self.assertEqual(c["label"], "silent_error")  # 给了数字，无澄清意图
+            self.assertEqual(t["label"], "correct")       # SQL 执行与金标一致
+            self.assertEqual(res["results_file"], str(d))
+
+
+class TestFreshDataTrial(unittest.TestCase):
+    """防拟合：全新数据 + 已知答案注入（固定 seed），判分器必须逐题还原注入标签。
+    证明 demo 数字是规则判分的结果，不是对着 demo 拟合的常量。"""
+
+    SQLS = [
+        "SELECT COUNT(*) FROM orders",
+        "SELECT COALESCE(SUM(net_amount),0) FROM orders",
+        "SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE status='cancelled'",
+        "SELECT COUNT(*) FROM orders WHERE customer_id < 5",
+        "SELECT COALESCE(AVG(total_amount),0) FROM orders",
+        "SELECT COALESCE(MAX(net_amount),0) FROM orders",
+        "SELECT COUNT(DISTINCT status) FROM orders",
+        "SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE order_date LIKE '2026-08%'",
+        "SELECT COUNT(*) FROM order_items",
+        "SELECT COALESCE(SUM(quantity),0) FROM order_items",
+    ]
+    ZH_MARKER = ["数据不足，无法计算", "需要澄清口径才能回答", "无法计算，缺少必要数据", "请澄清"]
+
+    def test_fresh_data_label_recovery(self):
+        import random
+        random.seed(20261106)
+        conn = hygieia.build_db(FIX)
+        questions, golds = [], []
+        for i, sql in enumerate(self.SQLS):
+            golds.append(hygieia._scalar(conn, sql))
+            questions.append({"id": f"t{i:02d}", "text": f"trial q{i}", "gold_sql": sql,
+                              "expected_behavior": "answer"})
+        questions.append({"id": "t10", "text": "clarify trial",
+                          "expected_behavior": "clarify", "gold_sql": None})
+        questions.append({"id": "t11", "text": "clarify trial",
+                          "expected_behavior": "clarify", "gold_sql": None})
+        qmap = {q["id"]: q for q in questions}
+        answers, ground = [], {}
+        for i, gold in enumerate(golds):
+            qid = f"t{i:02d}"
+            r = random.random()
+            if r < 0.70:
+                wrong = gold + random.choice([-37, -12, 9, 23, 45])
+                answers.append({"qid": qid, "value": wrong, "raw": str(wrong)})
+                ground[qid] = "silent_error"
+            elif r < 0.85:
+                answers.append({"qid": qid, "value": gold, "raw": str(gold)})
+                ground[qid] = "correct"
+            else:
+                answers.append({"qid": qid, "raw": random.choice(self.ZH_MARKER)})
+                ground[qid] = "clarify"
+        for qid in ("t10", "t11"):
+            if random.random() < 0.5:
+                answers.append({"qid": qid, "raw": random.choice(self.ZH_MARKER)})
+                ground[qid] = "clarify"
+            else:
+                answers.append({"qid": qid, "value": 999, "raw": "999"})
+                ground[qid] = "silent_error"
+        pred = {a["qid"]: hygieia.score_one(qmap[a["qid"]], a, conn, lang="zh")["label"]
+                for a in answers}
+        mismatches = [qid for qid in ground if pred.get(qid) != ground[qid]]
+        self.assertEqual(mismatches, [])  # 12/12 逐题还原
+
+    def test_treatment_perturbation_changes_numbers(self):
+        """敏感性：demo treatment 前 3 题去掉 sql 给错值 → 20/0 必须变为 17/3（非硬编码）。"""
+        import json
+        import tempfile
+        demo = json.loads((FIX / "demo_results.json").read_text(encoding="utf-8"))
+        for i, ans in enumerate(demo["arms"]["treatment"][:3]):
+            ans.pop("sql", None)
+            ans["value"] = (ans.get("value") or 0) + 500
+            ans["raw"] = str(ans["value"])
+        tmp = Path(tempfile.mkdtemp()) / "perturb.json"
+        tmp.write_text(json.dumps(demo, ensure_ascii=False), encoding="utf-8")
+        base = hygieia.eval_run(FIX)["arms"]["treatment"]
+        pert = hygieia.eval_run(FIX, str(tmp))["arms"]["treatment"]
+        self.assertEqual((base["correct"], base["silent_error"]), (20, 0))
+        self.assertEqual((pert["correct"], pert["silent_error"]), (17, 3))
+
+
+class TestSqlRefs(unittest.TestCase):
+    """N2：sqlglot AST 引用抽取——qualified/二进制/join/解析失败显式上报。"""
+
+    def test_extract_qualified_and_binary(self):
+        self.assertEqual(hygieia.expr_refs("sum(orders.net_amount)"),
+                         {("orders", "net_amount")})
+        self.assertEqual(hygieia.expr_refs("sum(refunds.amount) + sum(refunds.tax)"),
+                         {("refunds", "amount"), ("refunds", "tax")})
+        self.assertEqual(hygieia.expr_refs("orders.customer_id = customers.id"),
+                         {("orders", "customer_id"), ("customers", "id")})
+
+    def test_unparseable_raises(self):
+        with self.assertRaises(ValueError):
+            hygieia.expr_refs("SUM(((")
+
+    def test_r4_parse_failure_is_high_finding(self):
+        tables = {"orders": {"id"}}
+        metrics = [{"id": "broken", "expr": "SUM(((", "synonyms": [],
+                    "description": "x" * 20}]
+        r4 = [f for f in hygieia.rule_r4(metrics, tables) if f["rule"] == "R4-dangling-ref"]
+        self.assertEqual(len(r4), 1)
+        self.assertEqual(r4[0]["severity"], "high")
+        self.assertIn("unparseable", r4[0]["detail"])
+
+
+class TestImpact(unittest.TestCase):
+    """N2：git diff → 受影响 metrics（v1 unified diff 文本解析，见 docs/impact.md）。"""
+
+    def test_impact_marks_expr_metrics(self):
+        patch = ("--- a/fixtures/ecom/semantic/metrics.yml\n"
+                 "+++ b/fixtures/ecom/semantic/metrics.yml\n"
+                 '-    expr: "sum(orders.total_amount)"\n'
+                 '+    expr: "sum(orders.order_amount)"\n')
+        res = hygieia.impact(FIX, patch)
+        affected = {a["metric"] for a in res["affected"]}
+        self.assertIn("revenue", affected)          # expr 直接引用
+        self.assertIn("avg_order_value", affected)  # CASE WHEN 里引用
+        self.assertNotIn("net_revenue", affected)   # 不引用 total_amount
+        self.assertIn(("orders", "total_amount"), res["changed"])
+
+    def test_impact_marks_join_on_expr(self):
+        patch = ("--- a/fixtures/ecom/semantic/metrics.yml\n"
+                 "+++ b/fixtures/ecom/semantic/metrics.yml\n"
+                 '-    on_expr: "orders.customer_id = customers.id"\n'
+                 '+    on_expr: "orders.buyer_id = customers.id"\n')
+        res = hygieia.impact(FIX, patch)
+        self.assertIn("on_expr", {a["kind"] for a in res["affected"]})
+
+    def test_impact_empty_patch(self):
+        res = hygieia.impact(FIX, "")
+        self.assertEqual(res["affected"], [])
+        self.assertEqual(res["changed"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

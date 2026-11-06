@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Hygieia — 语义层体检与养护 skill（v0 概念验证）
+"""Hygieia：语义层体检与养护 skill（v0 概念验证）
 
-四命令：audit / eval / rot / report；纯本地离线，Python 3.10+，仅依赖 pyyaml。
+主命令：audit / eval / rot / report；附加子命令：adapt dbt / impact。
+纯本地离线，Python 3.10+，运行时依赖 pyyaml + sqlglot（AST 引用抽取）。
 
-契约见 docs/contract.md（第十一～十四节）：
+契约见 docs/contract.zh.md 第十一～十四节（英文镜像 docs/contract.en.md）：
   - 第十一节 metrics.yml / questions.yaml / demo_results.json 契约
   - 第十二节 严重度与修复建议
   - 第十三节 评测判分协议（标签互斥、优先级从上到下）
@@ -22,23 +23,30 @@ import sqlite3
 import sys
 from pathlib import Path
 
+try:  # 脚本模式：scripts/ 在 sys.path 上
+    import sql_refs  # noqa: E402  （同目录模块：sqlglot AST 引用抽取）
+except ImportError:  # pragma: no cover - 包模式（console_scripts / python -m）
+    try:
+        from . import sql_refs  # noqa: E402
+    except ImportError:
+        sys.exit("hygieia requires sqlglot: pip install -r requirements.txt")
+
 try:
     import yaml
 except ImportError:  # pragma: no cover
-    sys.exit("hygieia requires PyYAML: pip install pyyaml")
+    sys.exit("hygieia requires PyYAML: pip install -r requirements.txt")
 
 PROG = "hygieia"
 SEVERITY_ORDER = {"high": 3, "medium": 2, "low": 1}
 DEFAULT_DESC_MIN_LEN = 8  # R6：描述短于该长度算「不是人话」（可配置）
 
 # 显示层语言（--lang zh|en，默认 en）：两套字符串各自成文，不做机翻。
-# 注意：显示层与判分协议无关——判分关键词表仍按答案语言（v0 为中文表）。
+# 注意：显示层与判分协议无关，判分关键词表仍按答案语言（v0 为中文表）。
 LANG = "en"
 
 _STR = {
     "zh": {
         "inj_sep": "；",
-        "pyyaml_required": "hygieia 需要 PyYAML：pip install pyyaml",
         "sev_high": "🔴 高危", "sev_medium": "🟠 中危", "sev_low": "🟡 低危",
         "audit_summary": "共 {total} 条问题（高危 {high} / 中危 {medium} / 低危 {low}）",
         "r1_detail": "同义词「{s}」同时指向 {ids}",
@@ -91,7 +99,7 @@ _STR = {
         "eval_header1": "臂", "eval_header2": "正确", "eval_header3": "静默错答",
         "eval_header4": "准确率", "eval_header5": "静默错答率",
         "arm_control": "control（无语义层）", "arm_treatment": "treatment（有语义层）",
-        "simulated_note": "（simulated: true — {note}）",
+        "simulated_note": "（simulated: true，{note}）",
         "unknown_cmd": "未知命令: {cmd}",
         "verbose_label": "逐题标签：",
         "rot_injections": "注入：{items}",
@@ -110,7 +118,7 @@ _STR = {
         "report_eval_hdr": "| 指标 | 无语义层（control） | 有语义层（treatment） |",
         "report_accuracy": "| 准确率 | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
         "report_silent": "| 静默错答率 | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
-        "report_eval_note": "> 说明：本 demo 的评测是「模拟两臂答案 + 真实 SQL 判分」——两臂答案来自 demo_results.json（simulated: true，人工模拟），数字由金标/候选 SQL 在内存 SQLite 上真实执行得出；不是现场 LLM 评测。",
+        "report_eval_note": "> 说明：本 demo 的评测由模拟两臂答案和真实 SQL 判分组成。两臂答案来自 demo_results.json（simulated: true，人工编写），数字由金标/候选 SQL 在内存 SQLite 上真实执行得出，不是现场 LLM 评测。",
         "report_uncovered": "## 未覆盖漂移（v1+）",
         "report_uncovered_items": ("同义词漂移（好词指向坏指标）", "新增第三条 join 路径",
                                    "证据过期 / 链接失效", "描述被改成 tautology（纯 R7）",
@@ -124,9 +132,21 @@ _STR = {
         "adapt_dbt_help": "dbt Semantic Layer / MetricFlow YAML 子集 → metrics.yml",
         "adapt_in_help": "输入 YAML（semantic_models + metrics；可选 joins）",
         "adapt_out_help": "输出路径（写为 <dir>/semantic/metrics.yml）",
+        "r4_unparseable_detail": "指标 {mid} 的表达式无法解析：{err}",
+        "r4_fix_unparseable": "修复表达式使其可解析，再校验引用",
+        "join_expr_unparseable_detail": "join {l}->{r} 的 on_expr 无法解析：{err}",
+        "join_fix_unparseable": "修复 on_expr 使其可解析",
+        "impact_help": "影响分析：git diff → 受影响的 metrics（建议对变更跑 audit）",
+        "impact_diff_help": "unified diff 文件（- 表示从 stdin 读取）",
+        "impact_none": "无受影响指标",
+        "impact_head": "受影响 {n} 个指标（建议对 {fd} 跑 audit）：",
+        "impact_line": "  {metric}（{kind}）：{refs}",
+        "impact_changed": "变更引用：{items}",
+        "impact_files": "变更文件：{items}",
         "fail_bad": "❌ --fail-on {level}：{n} 条问题达到门禁，exit 1",
         "fail_ok": "✅ --fail-on {level}：无达到门禁的问题",
-        "prog_desc": "Hygieia：语义层体检与养护 — audit / eval / rot / report（纯本地离线，仅依赖 pyyaml）",
+        "prog_desc": "Hygieia：语义层体检与养护，audit / eval / rot / report + adapt / impact（纯本地离线，依赖 pyyaml + sqlglot）",
+        "pyyaml_required": "hygieia 需要 PyYAML：pip install -r requirements.txt",
         "report_print": "audit {total} 条（高危 {high}）｜ rot 新增捕获 {new} 条",
         "report_print_acc": "准确率 control {c} vs treatment {t}｜ 静默错答率 {cs} vs {ts}",
         "help_fixture": "fixture 目录（含 schema.sql / seed.sql / semantic/metrics.yml / questions.yaml）",
@@ -134,14 +154,13 @@ _STR = {
         "help_lang": "输出语言（zh=中文，en=英文；默认 en）",
         "help_fail_on": "CI：存在达到该严重度的问题则 exit 1",
         "help_fail_on_rot": "CI：新增捕获中存在达到该严重度的问题则 exit 1",
-        "help_results": "两臂答案 JSON（默认 fixtures/<dir>/demo_results.json）",
+        "help_results": "两臂答案文件：demo 单文件（默认 fixtures/<dir>/demo_results.json）或 runs/<run_id> 目录（meta.json + control.json + treatment.json，见 docs/eval-live.md）",
         "help_trust_hints": "调试开关：以 label_hint 为准",
         "help_verbose": "逐题列出标签",
         "help_write": "把漂移后的语义层写为 metrics.rot.yml（默认不写盘）",
     },
     "en": {
         "inj_sep": "; ",
-        "pyyaml_required": "hygieia requires PyYAML: pip install pyyaml",
         "sev_high": "🔴 High", "sev_medium": "🟠 Medium", "sev_low": "🟡 Low",
         "audit_summary": "Total {total} findings (high {high} / medium {medium} / low {low})",
         "r1_detail": "synonym \"{s}\" maps to multiple metrics: {ids}",
@@ -194,7 +213,7 @@ _STR = {
         "eval_header1": "Arm", "eval_header2": "Correct", "eval_header3": "Silent",
         "eval_header4": "Accuracy", "eval_header5": "Silent rate",
         "arm_control": "control (no semantic layer)", "arm_treatment": "treatment (with semantic layer)",
-        "simulated_note": "(simulated: true — {note})",
+        "simulated_note": "(simulated: true, {note})",
         "unknown_cmd": "unknown command: {cmd}",
         "verbose_label": "per-question labels:",
         "rot_injections": "Injections: {items}",
@@ -204,7 +223,7 @@ _STR = {
         "report_data": "- Fixture: {name} (6 tables, 20 Chinese questions)",
         "report_high": "## 🔴 High ({n})", "report_medium": "## 🟠 Medium ({n})", "report_low": "## 🟡 Low ({n})",
         "report_none": "- (none)",
-        "report_finding": "- {rule}: {detail} — {danger}",
+        "report_finding": "- {rule}: {detail}; {danger}",
         "report_rot": "## Rot simulation",
         "report_injections": "- Injections: {items}",
         "report_new": "- 🆕 {rule}: {detail}",
@@ -213,7 +232,7 @@ _STR = {
         "report_eval_hdr": "| Metric | No semantic layer (control) | With semantic layer (treatment) |",
         "report_accuracy": "| Accuracy | {c}/{ct} ({ca:.0%}) | {t}/{tt} ({ta:.0%}) |",
         "report_silent": "| Silent-error rate | {c}/{ct} ({cs:.0%}) | {t}/{tt} ({ts:.0%}) |",
-        "report_eval_note": "> Note: this demo's evaluation is simulated two-arm answers + real SQL scoring — the answers come from demo_results.json (simulated: true, hand-authored); the numbers come from real gold/candidate SQL execution on in-memory SQLite; not a live LLM evaluation.",
+        "report_eval_note": "> Note: this demo's evaluation combines simulated two-arm answers with real SQL scoring. The answers come from demo_results.json (simulated: true, hand-authored); the numbers come from real gold/candidate SQL execution on in-memory SQLite; this is not a live LLM evaluation.",
         "report_uncovered": "## Uncovered drift (v1+)",
         "report_uncovered_items": ("synonym drift (a good word pointing at a bad metric)",
                                    "a third join path", "stale evidence / dead links",
@@ -228,9 +247,21 @@ _STR = {
         "adapt_dbt_help": "dbt Semantic Layer / MetricFlow YAML subset → metrics.yml",
         "adapt_in_help": "input YAML (semantic_models + metrics; optional joins)",
         "adapt_out_help": "output path (written as <dir>/semantic/metrics.yml)",
+        "r4_unparseable_detail": "metric {mid}: expr unparseable: {err}",
+        "r4_fix_unparseable": "fix the expression so it parses, then re-verify references",
+        "join_expr_unparseable_detail": "join {l}->{r}: on_expr unparseable: {err}",
+        "join_fix_unparseable": "fix the on_expr so it parses",
+        "impact_help": "impact analysis: git diff → affected metrics (run audit on the change)",
+        "impact_diff_help": "unified diff file (- reads from stdin)",
+        "impact_none": "No affected metrics",
+        "impact_head": "{n} affected metrics (run audit on {fd}):",
+        "impact_line": "  {metric} ({kind}): {refs}",
+        "impact_changed": "changed references: {items}",
+        "impact_files": "changed files: {items}",
         "fail_bad": "❌ --fail-on {level}: {n} findings reach the gate, exit 1",
         "fail_ok": "✅ --fail-on {level}: no findings reach the gate",
-        "prog_desc": "Hygieia: semantic-layer health & maintenance — audit / eval / rot / report (fully offline, only pyyaml)",
+        "prog_desc": "Hygieia: semantic-layer health and maintenance, audit / eval / rot / report + adapt / impact (fully offline, pyyaml + sqlglot)",
+        "pyyaml_required": "hygieia requires PyYAML: pip install -r requirements.txt",
         "report_print": "audit {total} findings ({high} high) | rot new captures: {new}",
         "report_print_acc": "accuracy control {c} vs treatment {t} | silent-error rate {cs} vs {ts}",
         "help_fixture": "fixture directory (schema.sql / seed.sql / semantic/metrics.yml / questions.yaml)",
@@ -238,7 +269,7 @@ _STR = {
         "help_lang": "output language (zh=Chinese, en=English; default en)",
         "help_fail_on": "CI: exit 1 when findings reach this severity",
         "help_fail_on_rot": "CI: exit 1 when new captures reach this severity",
-        "help_results": "two-arm answers JSON (default fixtures/<dir>/demo_results.json)",
+        "help_results": "two-arm answers: demo single file (default fixtures/<dir>/demo_results.json) or a runs/<run_id> directory (meta.json + control.json + treatment.json, see docs/eval-live.md)",
         "help_trust_hints": "debug switch: trust label_hint",
         "help_verbose": "list per-question labels",
         "help_write": "write the drifted semantic layer as metrics.rot.yml (off by default)",
@@ -257,6 +288,18 @@ CLARIFY_MARKERS = (
     "需要补充", "请确认", "请澄清", "需澄清", "澄清", "确认口径", "补充埋点",
 )
 ABSTAIN_MARKERS = ("不知道", "无法回答", "答不上来", "不能回答")
+
+# 英文关键词表（P3 新增，v1 项提前落地）：与中文表互斥，按答案语言自动选择
+EN_CLARIFY_MARKERS = (
+    "need clarification", "needs clarification", "need more information", "please clarify",
+    "insufficient data", "not enough data", "cannot compute", "can't compute",
+    "cannot calculate", "can't calculate", "unable to compute", "data missing",
+    "not defined", "undefined", "which metric", "which table",
+)
+EN_ABSTAIN_MARKERS = (
+    "i don't know", "i do not know", "don't know", "do not know", "unknown",
+    "cannot answer", "can't answer", "unable to answer", "no data",
+)
 
 RE_CREATE_TABLE = re.compile(
     r"create\s+table\s+(?:if\s+not\s+exists\s+)?(?:[\w]+\.)?([a-z_][a-z0-9_]*)\s*\(([^;]*)\)\s*;",
@@ -381,7 +424,15 @@ def rule_r3(joins, tables):
                         "R4-dangling-ref", "high", f"join {l}->{r}",
                         t("join_side_detail", side=side),
                         t("join_danger"), t("join_fix_side")))
-            for tcol, c in sorted(expr_refs(j.get("on_expr") or "")):
+            try:
+                join_refs = expr_refs(j.get("on_expr") or "")
+            except ValueError as exc:
+                findings.append(finding(
+                    "R4-dangling-ref", "high", f"join {l}->{r}",
+                    t("join_expr_unparseable_detail", l=l, r=r, err=exc),
+                    t("join_danger"), t("join_fix_unparseable")))
+                continue
+            for tcol, c in sorted(join_refs):
                 if tcol not in tables:
                     findings.append(finding(
                         "R4-dangling-ref", "high", f"join {l}->{r}",
@@ -396,16 +447,27 @@ def rule_r3(joins, tables):
 
 
 def expr_refs(expr):
-    """从 expr 提取 ident.ident 作为表.列引用（v0 正则启发式）。"""
-    e = (expr or "").lower()
-    return set(RE_TABLE_COL.findall(e))
+    """从 expr 提取 (table, column) 引用集合（v1 工程内核：sqlglot AST 抽取）。
+
+    解析失败抛 ValueError（含方言与原因），绝不静默当作「无引用」；
+    调用方（rule_r4 / join 检查 / impact）负责转成显式 finding/报告项。
+    """
+    return sql_refs.extract_refs(expr or "", dialect="sqlite")
 
 
 def rule_r4(metrics, tables):
-    """R4 悬空引用：表达式引用不存在的表/列 -> 高危。"""
+    """R4 悬空引用：表达式引用不存在的表/列 -> 高危；无法解析的表达式同样高危（显式上报）。"""
     findings = []
     for m in metrics:
-        for tc, c in sorted(expr_refs(m.get("expr") or "")):
+        try:
+            refs = expr_refs(m.get("expr") or "")
+        except ValueError as exc:
+            findings.append(finding(
+                "R4-dangling-ref", "high", m["id"],
+                t("r4_unparseable_detail", mid=m["id"], err=exc),
+                t("r4_danger"), t("r4_fix_unparseable")))
+            continue
+        for tc, c in sorted(refs):
             if tc not in tables:
                 findings.append(finding(
                     "R4-dangling-ref", "high", m["id"],
@@ -477,6 +539,51 @@ def audit_core(tables, metrics, domains, joins, desc_min_len=DEFAULT_DESC_MIN_LE
     findings.extend(rule_r5(metrics))
     findings.extend(rule_r6(metrics, desc_min_len))
     findings.extend(rule_r7(metrics, tables))
+    return findings
+
+
+# ---------------------------------------------------------------- impact（git diff → 受影响 metrics）
+
+def impact(fd, patch_text):
+    """v1 影响分析：解析 unified diff 文本，映射到 metrics.yml 里 expr/on_expr 命中的 metrics。
+
+    变更 token 只从 diff 的 +/- 行抽取（RE_TABLE_COL 的 tbl.col 引用）；
+    解析失败按「无法验证」显式上报（不静默），见 docs/impact.md。
+    返回 {"files_changed": [...], "changed": [...], "affected": [...]}。
+    """
+    files_changed, changed = [], set()
+    for line in patch_text.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            name = line[4:].strip()
+            if name:
+                files_changed.append(name[2:] if name.startswith(("a/", "b/")) else name)
+            continue
+        if line.startswith("+") or line.startswith("-"):
+            changed.update((t.lower(), c.lower())
+                           for t, c in RE_TABLE_COL.findall(line))
+    changed = sorted(changed)
+    sm = load_yml(fd / "semantic" / "metrics.yml")
+    affected = []
+
+    def _scan(label, target, kind):
+        try:
+            refs = expr_refs(target)
+        except ValueError as exc:
+            affected.append({"metric": label, "kind": kind, "refs": [],
+                             "unparseable": str(exc)})
+            return
+        hits = sorted((t, c) for (t, c) in refs
+                      if (t, c) in changed or (t, "") in changed or (t, "*") in changed)
+        if hits:
+            affected.append({"metric": label, "kind": kind, "refs": hits})
+
+    for m in sm.get("metrics", []):
+        _scan(m["id"], m.get("expr") or "", "expr")
+    for j in sm.get("joins", []):
+        _scan(f"join {j['left']}->{j['right']}", j.get("on_expr") or "", "on_expr")
+
+    return {"files_changed": sorted(set(files_changed)), "changed": changed,
+            "affected": affected}
     return findings
 
 
@@ -564,10 +671,18 @@ def rot(fixture_dir):
 # ---------------------------------------------------------------- eval（第十三节判分协议）
 
 def build_db(fd: Path):
-    """内存 SQLite：先建 schema 再灌 seed，作为金标/候选 SQL 的统一执行环境。"""
+    """内存 SQLite：先建 schema 再灌 seed，作为金标/候选 SQL 的统一执行环境。
+
+    调用方负责关闭（eval_run 用 try/finally；测试用 try/finally）。
+    建库中途失败也会关连接，避免 ResourceWarning。
+    """
     conn = sqlite3.connect(":memory:")
-    conn.executescript((fd / "schema.sql").read_text(encoding="utf-8"))
-    conn.executescript((fd / "seed.sql").read_text(encoding="utf-8"))
+    try:
+        conn.executescript((fd / "schema.sql").read_text(encoding="utf-8"))
+        conn.executescript((fd / "seed.sql").read_text(encoding="utf-8"))
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
@@ -585,22 +700,45 @@ def _values_equal(a, b):
     return str(a).strip().lower() == str(b).strip().lower()
 
 
-def _marker(raw):
+_RE_CJK = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _marker_lang(results):
+    """答案语言探测：任一 raw 含 CJK → 中文关键词表，否则英文关键词表。
+
+    关键词表与答案语言耦合（13.2 契约）：探测基于回答内容而非显示语言，
+    保证 demo（中文答案）与真实英文 run 各自命中正确表。
+    """
+    for arm in results["arms"].values():
+        for ans in arm:
+            if _RE_CJK.search(ans.get("raw") or ""):
+                return "zh"
+    return "en"
+
+
+def _marker(raw, lang="zh"):
     if not raw:
         return None
-    if any(m in raw for m in CLARIFY_MARKERS):
+    if lang == "en":
+        r = raw.strip().lower()
+        cm, am = EN_CLARIFY_MARKERS, EN_ABSTAIN_MARKERS
+    else:
+        r = raw
+        cm, am = CLARIFY_MARKERS, ABSTAIN_MARKERS
+    if any(m in r for m in cm):
         return "clarify"
-    if any(m in raw for m in ABSTAIN_MARKERS):
+    if any(m in r for m in am):
         return "abstain"
     return None
 
 
-def score_one(q, ans, conn):
+def score_one(q, ans, conn, lang="zh"):
     """第十三节 13.1/13.2：单题判分（标签互斥，优先级 clarify > abstain > honest_error > silent_error > correct）。
 
-    expected=clarify 时收紧（审查必改项 H2）：空 raw、无澄清意图的短回复（如「嗯」「好的」）
+    expected=clarify 时收紧（审查必改项 H2）：空 raw、无澄清意图的短回复（如「嗯」「好的」「ok」）
     一律不算 correct；只有 _marker 明确命中（含「需澄清」类文案）才记 clarify/abstain 且可计入
     准确率分子；给了数字/武断是非（含 raw 中出现数字）一律 silent_error。
+    lang 选择关键词表：zh（默认）/ en，由 eval_run 按答案语言探测传入。
     """
     qid = q["id"]
     expected = q.get("expected_behavior", "answer")
@@ -611,7 +749,7 @@ def score_one(q, ans, conn):
             return {"qid": qid, "label": "silent_error", "expected": expected,
                     "explained": False, "notes": t("note_silent_clarify"),
                     "numeric_value": value if value is not None else None}
-        marker = _marker(raw)
+        marker = _marker(raw, lang)
         if marker == "clarify":
             return {"qid": qid, "label": "clarify", "expected": expected,
                     "explained": True, "notes": t("note_clarify"),
@@ -650,7 +788,7 @@ def score_one(q, ans, conn):
                 "explained": ok,
                 "notes": "" if ok else t("note_value_mismatch", value=value, gold=gold),
                 "numeric_value": value}
-    label = _marker(raw) or "abstain"
+    label = _marker(raw, lang) or "abstain"
     return {"qid": qid, "label": label, "expected": expected,
             "explained": label != "abstain",
             "notes": t("note_no_answer"), "numeric_value": None}
@@ -671,15 +809,28 @@ def eval_run(fixture_dir, results_path=None, trust_hints=False):
     questions = load_yml(fd / "questions.yaml")["questions"]
     qmap = {q["id"]: q for q in questions}
     results_file = Path(results_path) if results_path else fd / "demo_results.json"
-    results = json.loads(results_file.read_text(encoding="utf-8"))
+    if results_file.is_dir():
+        # runs/<run_id>/ 协议（P3，docs/eval-live.md）：meta.json + control.json + treatment.json
+        meta = json.loads((results_file / "meta.json").read_text(encoding="utf-8"))
+        results = {
+            "simulated": meta.get("simulated", True),
+            "note": meta.get("note", "run " + str(meta.get("run_id", results_file.name))),
+            "arms": {
+                "control": json.loads((results_file / "control.json").read_text(encoding="utf-8")),
+                "treatment": json.loads((results_file / "treatment.json").read_text(encoding="utf-8")),
+            },
+        }
+    else:
+        results = json.loads(results_file.read_text(encoding="utf-8"))
     conn = build_db(fd)
+    marker_lang = _marker_lang(results)  # 答案语言探测：中文答案→中文关键词表，英文→英文表
 
     arms = {}
     try:
         for arm in ("control", "treatment"):
             rows = []
             for ans in results["arms"][arm]:
-                row = score_one(qmap[ans["qid"]], ans, conn)
+                row = score_one(qmap[ans["qid"]], ans, conn, marker_lang)
                 if trust_hints and ans.get("label_hint"):  # 调试开关：以 hint 为准，不代替自动判分
                     row["label"] = ans["label_hint"]
                 rows.append(row)
@@ -757,7 +908,7 @@ def report(fixture_dir):
     md = render_report(fd, a, r, e)
     out = fd / "reports" / "health-report.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(md, encoding="utf-8")
+    out.write_text(md, encoding="utf-8", newline="\n")
     return {
         "path": str(out),
         "audit_total": a["summary"]["total"],
@@ -860,7 +1011,7 @@ def adapt_dbt(data):
       semantic_models[].name + .measures[]（name, agg, description?）
       metrics[]（name, type: simple|ratio, type_params.measure / numerator/denominator,
                  group?, description?）
-      joins[]（可选，显式 on_expr；裸 on 无法映射——YAML 1.1 布尔键陷阱）
+      joins[]（可选，显式 on_expr；裸 on 无法映射，YAML 1.1 布尔键陷阱）
     不做 bootstrap、不写回 dbt、不伪造证据（evidence 留空 → 现有 R5 会打中，属期望行为）。
     返回 {"version", "domains", "joins", "metrics", "skipped"}；skipped 逐条带原因。
     """
@@ -964,7 +1115,7 @@ def main(argv=None):
         sp.add_argument("--json", action="store_true", help=t("help_json"))
         return sp
 
-    sp_audit = add_cmd("audit", aliases=["doctor"])  # 保留 doctor 子命令别名
+    sp_audit = add_cmd("audit")
     sp_audit.add_argument("--fail-on", choices=("high", "medium", "low"),
                           help=t("help_fail_on"))
 
@@ -982,6 +1133,9 @@ def main(argv=None):
     sp_report.add_argument("--fail-on", choices=("high", "medium", "low"),
                            help=t("help_fail_on"))
 
+    sp_impact = add_cmd("impact", help=t("impact_help"))
+    sp_impact.add_argument("--diff", required=True, help=t("impact_diff_help"))
+
     sp_adapt = sub.add_parser("adapt", help=t("adapt_help"))
     sp_adapt.add_argument("--lang", choices=("zh", "en"), default=argparse.SUPPRESS,
                           help=t("help_lang"))
@@ -994,7 +1148,7 @@ def main(argv=None):
 
     args = p.parse_args(argv)
     LANG = args.lang
-    cmd = "audit" if args.command == "doctor" else args.command
+    cmd = args.command
 
     if cmd == "audit":
         res = audit(args.fixture_dir)
@@ -1026,7 +1180,8 @@ def main(argv=None):
                 "joins": res["drifted_joins"],
                 "metrics": res["drifted_metrics"],
             }
-            out.write_text(yaml.safe_dump(drifted, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            out.write_text(yaml.safe_dump(drifted, allow_unicode=True, sort_keys=False),
+                           encoding="utf-8", newline="\n")
             print(t("write_done", out=out))
         if args.json:
             print(json.dumps(_jsonable(res), ensure_ascii=False, indent=2))
@@ -1046,10 +1201,29 @@ def main(argv=None):
         out.parent.mkdir(parents=True, exist_ok=True)
         payload = {k: res[k] for k in ("version", "domains", "joins", "metrics")}
         out.write_text(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
-                       encoding="utf-8")
+                       encoding="utf-8", newline="\n")
         for s in res["skipped"]:
             print(t("adapt_skip", item=s["item"], reason=s["reason"]), file=sys.stderr)
         print(t("adapt_done", n=len(res["metrics"]), out=out, m=len(res["skipped"])))
+        return 0
+
+    if cmd == "impact":
+        patch = sys.stdin.read() if args.diff == "-" else Path(args.diff).read_text(encoding="utf-8")
+        res = impact(Path(args.fixture_dir), patch)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False))
+            return 0
+        if res["files_changed"]:
+            print(t("impact_files", items=", ".join(res["files_changed"])))
+        if res["changed"]:
+            print(t("impact_changed", items=", ".join(f"{t}.{c}" for t, c in res["changed"])))
+        if not res["affected"]:
+            print(t("impact_none"))
+            return 0
+        print(t("impact_head", n=len(res["affected"]), fd=args.fixture_dir))
+        for a in res["affected"]:
+            refs = ", ".join(f"{t}.{c}" for t, c in a["refs"]) or a.get("unparseable", "")
+            print(t("impact_line", metric=a["metric"], kind=a["kind"], refs=refs))
         return 0
 
     if cmd == "report":

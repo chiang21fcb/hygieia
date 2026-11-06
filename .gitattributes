@@ -1,0 +1,3 @@
+# normalize line endings: index and working tree use LF
+* text=auto eol=lf
+*.svg text

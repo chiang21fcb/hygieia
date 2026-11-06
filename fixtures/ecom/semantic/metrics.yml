@@ -1,7 +1,8 @@
 # Hygieia demo fixture（ecom）：故意埋雷的语义层
 # 埋雷：R1 同义冲突（营收）、R3 join 歧义（orders->customers ×2）、
 #       R4 悬空引用（refund_total -> refunds 表）、R5 证据缺失 ×4
-# 契约见 docs/contract.md 第十一节
+# 非埋雷：customer_spend 是 Live run 复盘后补的客户维度口径（正常指标，带证据）
+# 契约见 docs/contract.zh.md 第十一节（英文镜像 docs/contract.en.md）
 # 注意：join 条件字段名是 on_expr —— YAML 1.1 会把裸 `on` 解析成布尔键 True
 version: 1
 
@@ -58,6 +59,23 @@ metrics:
     table: orders
     grain: order
     # 无 evidence -> R5
+
+  # 客户维度口径：Live run（live-20261106-dsh）q14 暴露的缺口——语义层只有订单
+  # 粒度指标，agent 直接写 SQL 时把取消单算进了客户累计消费（430 vs 金标 390）。
+  # 这里补一个按客户、仅未取消订单的累计净消费口径（取消单 net_amount = 0）。
+  # 设计约束：引用 net_amount 而非 total_amount，故不改变 rot 注入的捕获计数；
+  # 带 evidence，故不新增 R5；domain/table 合法，故不新增 R2。
+  - id: customer_spend
+    name: 客户累计消费
+    synonyms: ["客户消费", "客户累计消费额"]
+    domain: sales
+    description: "按客户统计的累计净消费，仅统计未取消订单（取消单净额为 0），用于客户维度排名"
+    expr: "sum(orders.net_amount)"
+    table: orders
+    grain: customer
+    evidence:
+      - type: dashboard
+        ref: "dashboard/customer_spend"
 
   # 单独埋的 R4 悬空引用：refund_total 引用了 schema 中不存在的 refunds 表。
   # 它不参与 eval 的金标路径——treatment 答案不依赖它，只用来演示 audit 能抓到。

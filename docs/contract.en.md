@@ -1,7 +1,7 @@
-# Hygieia — Encoding Contract (English)
+# Hygieia: Encoding Contract (English)
 
-> **Authority**: this document is the public English contract of the project —
-> the metrics.yml contract, severity mapping, scoring protocol, and rot threat
+> **Authority**: this document is the public English contract of the project.
+> The metrics.yml contract, severity mapping, scoring protocol, and rot threat
 > model below are binding for implementers. The Chinese counterpart is
 > [`docs/contract.zh.md`](contract.zh.md); when the two differ, the Chinese
 > version prevails. Ambiguities that neither resolves are settled by the
@@ -9,13 +9,14 @@
 >
 > **Language note (for international readers)**: the prose of this document is
 > English. Chinese characters appear only where the document quotes **fixture
-> data** (the bundled ecom demo mirrors a Chinese data warehouse — metric
+> data** (the bundled ecom demo mirrors a Chinese data warehouse; metric
 > display names, synonyms, and question texts are data, not prose) or **verbatim
-> protocol constants** (the v0 Chinese marker table and the filler replies the
-> scorer treats as non-compliant). They are quoted exactly as the tool consumes
-> them; translating them would make this document stop matching the fixture and
-> the scorer. A bilingual internationalized fixture (English questions and
-> answers) is a v1+ item.
+> protocol constants** (the Chinese marker table the scorer matches and the
+> filler replies it treats as non-compliant; an English marker table also ships,
+> selected by answer-language detection). They are quoted exactly as the tool
+> consumes them; translating them would make this document stop matching the
+> fixture and the scorer. A bilingual internationalized fixture (English
+> questions and answers) is a v1+ item.
 
 ## Measured numbers (demo reproduction)
 
@@ -48,7 +49,7 @@ joins:                 # used by R3; multiple rows for the same (left, right) = 
 
 metrics:
   - id: revenue                 # required, unique
-    name: 收入                  # display name (fixture data — stays in fixture language)
+    name: 收入                  # display name (fixture data, stays in fixture language)
     synonyms: ["营收", "销售额"] # R1: synonym overlap across metrics is a conflict (fixture data)
     domain: sales               # R2: must exist in domains[].id
     description: "..."          # R6/R7
@@ -114,7 +115,9 @@ The scorer follows Section 13; `label_hint` is for manual proofreading only and 
 | medium | credibility / discoverability impaired; not necessarily a wrong number this time | R5; R2 without table binding but existing domain |
 | low | readability / context quality | R6, R7 |
 
-Every finding is emitted as (example printed by the CLI with the default English display; the `subject` is quoted fixture data — the synonym itself — and keeps the fixture language):
+**R1 demonstration baseline (trade-off note)**: in the ecom fixture, `营收` is deliberately double-hung between `revenue` and `net_revenue` to demonstrate the R1 red light; the conflict is **kept on purpose** (removing the synonym would change the demo baseline: 7 findings / 3 high). The live run showed an agent may still pick the right caliber from the "preferred business caliber" description, but the red light is still reported honestly and is not suppressed because "the agent guessed right". Surfacing the conflict is the value of the tool.
+
+Every finding is emitted as (example printed by the CLI with the default English display; the `subject` is quoted fixture data (the synonym itself) and keeps the fixture language):
 
 ```json
 {
@@ -127,7 +130,7 @@ Every finding is emitted as (example printed by the CLI with the default English
 }
 ```
 
-Known false positives / missed detections (also written into the README, no overpromising):
+Known false positives / missed detections (also written into the README):
 
 | Rule | Possible false positives | Known misses (v0) |
 |---|---|---|
@@ -151,7 +154,7 @@ Known false positives / missed detections (also written into the README, no over
 
 ### 13.2 What counts as "correct"
 
-1. If `expected_behavior: clarify`: a label of `clarify` (or an equivalent abstention with a stated reason) → **correct**; giving a concrete number or a categorical yes/no (including a number appearing in `raw`) → **silent_error**. **Tightening rule (v0 review item H2)**: empty `raw`, or a short reply with no clarifying intent (e.g. "嗯", "好的"), must not default to `clarify` — it is labeled non-conforming `abstain` (not counted in the accuracy numerator). Only an explicit keyword hit (数据不足 / 无法计算 / 需澄清 / 无法回答, etc.) earns `clarify` / `abstain` counted as correct; an `abstain` counted in the numerator must carry explanatory content (a refusal/clarification keyword hit) — non-empty `notes` alone does not count. The keyword table is coupled to the answer language: v0 ships the Chinese table; an English table is a v1+ item.
+1. If `expected_behavior: clarify`: a label of `clarify` (or an equivalent abstention with a stated reason) → **correct**; giving a concrete number or a categorical yes/no (including a number appearing in `raw`) → **silent_error**. **Tightening rule (v0 review item H2)**: empty `raw`, or a short reply with no clarifying intent (e.g. "嗯", "好的"), must not default to `clarify`; it is labeled non-conforming `abstain` (not counted in the accuracy numerator). Only an explicit keyword hit (数据不足 / 无法计算 / 需澄清 / 无法回答, etc.) earns `clarify` / `abstain` counted as correct; an `abstain` counted in the numerator must carry explanatory content (a refusal/clarification keyword hit); non-empty `notes` alone does not count. The keyword table is coupled to the answer language: v0 ships a Chinese table and an English table (`unknown` / `cannot compute` / `insufficient data` / `need clarification` / `i don't know`, …), selected by answer-language detection: any CJK character in the answers selects the Chinese table, otherwise the English one. The demo fixture itself stays Chinese.
 2. If `expected_behavior: answer`:
    - compare execution results first: `gold_sql` and the candidate `sql` run against the same seed DB; scalar results equal (numeric: relative tolerance `1e-6` or the question's stated absolute tolerance);
    - no SQL, only `value`: compare against `gold_value`;
@@ -165,7 +168,7 @@ Known false positives / missed detections (also written into the README, no over
 - control: accuracy 13/20, silent errors 7/20
 - treatment: accuracy 20/20, silent errors 0/20
 
-After implementation, run the same scorer against `demo_results.json` and assert these numbers; if fixture tweaks change gold values, update this section and the numbers section together — code-only changes without doc updates are forbidden.
+After implementation, run the same scorer against `demo_results.json` and assert these numbers; if fixture tweaks change gold values, update this section and the numbers section together. Code-only changes without doc updates are forbidden.
 
 ## 14. rot threat model
 
@@ -199,4 +202,4 @@ Left for v1+ to keep the demo scope bounded.
 
 ---
 
-*Research-stage artifact: demo data may be simulated; conclusions are for discussion and are not product promises. External name and repo: `hygieia`; CLI entry `scripts/hygieia.py` (`doctor` sub-command alias retained).*
+*Repository name `hygieia`; CLI entry `scripts/hygieia.py`.*

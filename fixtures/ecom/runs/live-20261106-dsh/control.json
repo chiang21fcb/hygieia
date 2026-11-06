@@ -1,0 +1,118 @@
+[
+  {
+    "qid": "q01",
+    "sql": "SELECT COUNT(*) FROM customers",
+    "value": 6,
+    "raw": "共有 6 位客户。"
+  },
+  {
+    "qid": "q02",
+    "sql": "SELECT COUNT(*) FROM products WHERE status='active'",
+    "value": 4,
+    "raw": "在售商品 4 个。"
+  },
+  {
+    "qid": "q03",
+    "sql": "SELECT COUNT(*) FROM orders",
+    "value": 12,
+    "raw": "共 12 笔订单（含取消）。"
+  },
+  {
+    "qid": "q04",
+    "sql": "SELECT AVG(rating) FROM reviews",
+    "value": 3.6,
+    "raw": "平均评分 3.6。"
+  },
+  {
+    "qid": "q05",
+    "sql": "SELECT SUM(total_amount) FROM orders WHERE order_date LIKE '2026-06%'",
+    "value": 650.0,
+    "raw": "6 月销售总额 650。"
+  },
+  {
+    "qid": "q06",
+    "sql": "SELECT COUNT(*) FROM payments",
+    "value": 12,
+    "raw": "支付记录 12 条。"
+  },
+  {
+    "qid": "q07",
+    "sql": "SELECT SUM(net_amount) FROM orders WHERE order_date>='2026-07-01' AND order_date<'2026-08-01'",
+    "value": 1110.0,
+    "raw": "7 月净收入 1110。"
+  },
+  {
+    "qid": "q08",
+    "sql": "SELECT SUM(total_amount) FROM orders",
+    "value": 1860.0,
+    "raw": "总收入 1860。"
+  },
+  {
+    "qid": "q09",
+    "sql": "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date>='2026-07-02'",
+    "value": 5,
+    "raw": "活跃客户（30 天窗口）5 位。"
+  },
+  {
+    "qid": "q10",
+    "sql": "SELECT SUM(total_amount) FROM orders",
+    "value": 1860.0,
+    "raw": "营收为 1860。"
+  },
+  {
+    "qid": "q12",
+    "sql": "SELECT AVG(total_amount) FROM orders",
+    "value": 155.0,
+    "raw": "平均客单价 155（全部订单口径）。"
+  },
+  {
+    "qid": "q13",
+    "sql": "SELECT SUM(o.total_amount) FROM orders o WHERE EXISTS (SELECT 1 FROM payments p WHERE p.order_id=o.id AND p.status='success')",
+    "value": 1760.0,
+    "raw": "支付成功（未退款）订单总金额 1760。"
+  },
+  {
+    "qid": "q14",
+    "sql": "SELECT MAX(s) FROM (SELECT SUM(total_amount) s FROM orders GROUP BY customer_id)",
+    "value": 430.0,
+    "raw": "累计消费最高的客户消费 430。"
+  },
+  {
+    "qid": "q15",
+    "sql": "SELECT COUNT(*) FROM reviews WHERE rating<=2",
+    "value": 1,
+    "raw": "差评 1 条。"
+  },
+  {
+    "qid": "q16",
+    "sql": "SELECT COUNT(DISTINCT status) FROM orders",
+    "value": 2,
+    "raw": "订单状态 2 种。"
+  },
+  {
+    "qid": "q17",
+    "sql": "SELECT COUNT(*) FROM orders WHERE order_date LIKE '2026-06%'",
+    "value": 2,
+    "raw": "6 月订单 2 笔。"
+  },
+  {
+    "qid": "q18",
+    "sql": "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date LIKE '2026-07%'",
+    "value": 5,
+    "raw": "7 月下单的不同客户 5 位。"
+  },
+  {
+    "qid": "q19",
+    "sql": "SELECT SUM(total_amount) FROM orders WHERE status='canceled'",
+    "value": 100.0,
+    "raw": "被取消订单金额合计 100。"
+  },
+  {
+    "qid": "q11",
+    "raw": "数据不足：schema 中没有访问或点击数据，无法计算下单转化率。"
+  },
+  {
+    "qid": "q20",
+    "raw": "无法确认：schema 中没有运费字段，无法判断净收入是否包含运费。"
+  }
+]

@@ -1,0 +1,118 @@
+[
+  {
+    "qid": "q01",
+    "sql": "SELECT COUNT(*) FROM customers",
+    "value": 6,
+    "raw": "共有 6 位客户。"
+  },
+  {
+    "qid": "q02",
+    "sql": "SELECT COUNT(*) FROM products WHERE status='active'",
+    "value": 4,
+    "raw": "在售商品 4 个。"
+  },
+  {
+    "qid": "q03",
+    "sql": "SELECT count(orders.id) FROM orders",
+    "value": 12,
+    "raw": "共 12 笔订单（含取消）。"
+  },
+  {
+    "qid": "q04",
+    "sql": "SELECT AVG(rating) FROM reviews",
+    "value": 3.6,
+    "raw": "平均评分 3.6。"
+  },
+  {
+    "qid": "q05",
+    "sql": "SELECT SUM(orders.total_amount) FROM orders WHERE order_date LIKE '2026-06%'",
+    "value": 650.0,
+    "raw": "6 月销售总额 650（revenue 口径）。"
+  },
+  {
+    "qid": "q06",
+    "sql": "SELECT COUNT(*) FROM payments",
+    "value": 12,
+    "raw": "支付记录 12 条。"
+  },
+  {
+    "qid": "q07",
+    "sql": "SELECT SUM(orders.net_amount) FROM orders WHERE order_date>='2026-07-01' AND order_date<'2026-08-01'",
+    "value": 1110.0,
+    "raw": "7 月净收入 1110（net_revenue）。"
+  },
+  {
+    "qid": "q08",
+    "sql": "SELECT SUM(orders.net_amount) FROM orders",
+    "value": 1760.0,
+    "raw": "总收入 1760（按净收入口径）。"
+  },
+  {
+    "qid": "q09",
+    "sql": "SELECT COUNT(DISTINCT o.customer_id) FROM orders o WHERE o.order_date>='2026-07-02'",
+    "value": 5,
+    "raw": "活跃客户 5 位。"
+  },
+  {
+    "qid": "q10",
+    "sql": "SELECT SUM(orders.net_amount) FROM orders",
+    "value": 1760.0,
+    "raw": "营收 1760（营收同义词同时落在收入/净收入两个指标，按 net_revenue 业务首选口径计算）。"
+  },
+  {
+    "qid": "q12",
+    "sql": "SELECT sum(case when orders.status != 'canceled' then orders.total_amount else 0 end) / count(case when orders.status != 'canceled' then orders.id end) FROM orders",
+    "value": 176.0,
+    "raw": "平均客单价 176（语义层口径：仅非取消订单）。"
+  },
+  {
+    "qid": "q13",
+    "sql": "SELECT SUM(o.total_amount) FROM orders o WHERE EXISTS (SELECT 1 FROM payments p WHERE p.order_id=o.id AND p.status='success')",
+    "value": 1760.0,
+    "raw": "支付成功（未退款）订单总金额 1760。"
+  },
+  {
+    "qid": "q14",
+    "sql": "SELECT MAX(s) FROM (SELECT SUM(total_amount) s FROM orders GROUP BY customer_id)",
+    "value": 430.0,
+    "raw": "累计消费最高的客户消费 430。"
+  },
+  {
+    "qid": "q15",
+    "sql": "SELECT COUNT(*) FROM reviews WHERE rating<=2",
+    "value": 1,
+    "raw": "差评 1 条。"
+  },
+  {
+    "qid": "q16",
+    "sql": "SELECT COUNT(DISTINCT status) FROM orders",
+    "value": 2,
+    "raw": "订单状态 2 种。"
+  },
+  {
+    "qid": "q17",
+    "sql": "SELECT count(orders.id) FROM orders WHERE order_date LIKE '2026-06%'",
+    "value": 2,
+    "raw": "6 月订单 2 笔（order_count）。"
+  },
+  {
+    "qid": "q18",
+    "sql": "SELECT COUNT(DISTINCT customer_id) FROM orders WHERE order_date LIKE '2026-07%'",
+    "value": 5,
+    "raw": "7 月下单客户 5 位。"
+  },
+  {
+    "qid": "q19",
+    "sql": "SELECT SUM(total_amount) FROM orders WHERE status='canceled'",
+    "value": 100.0,
+    "raw": "被取消订单金额合计 100。"
+  },
+  {
+    "qid": "q11",
+    "raw": "无法计算：语义层没有访问/点击数据，缺少转化率所需分母口径。"
+  },
+  {
+    "qid": "q20",
+    "raw": "无法确认：语义层与 schema 均无运费字段，净收入口径未定义是否含运费。"
+  }
+]

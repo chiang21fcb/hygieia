@@ -1,4 +1,4 @@
-# Adapters (read-only) — dbt / MetricFlow → `metrics.yml`
+# Adapters (read-only): dbt / MetricFlow to `metrics.yml`
 
 Hygieia audits the `metrics.yml` contract. The `adapt dbt` command maps an
 external semantic-layer export onto that contract **read-only**, so anything
@@ -69,10 +69,10 @@ and omitted from the output:
 
 ## Non-goals (v0)
 
-- no bootstrap / intake / human review gates — Hygieia only verifies what
+- no bootstrap / intake / human review gates; Hygieia only verifies what
   already exists
-- no write-back to dbt / MetricFlow — the adapter is read-only
-- no crawling of dbt projects or `ref('...')` resolution — the input must be a
+- no write-back to dbt / MetricFlow; the adapter is read-only
+- no crawling of dbt projects or `ref('...')` resolution; the input must be a
   self-contained YAML export
 - no other ecosystems yet (external ontology trees are a documented v1
   candidate)
