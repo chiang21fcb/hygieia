@@ -105,15 +105,33 @@ class TestBrokenSynonym(unittest.TestCase):
 
 
 class TestReport(unittest.TestCase):
-    """总验收：report 生成 Markdown，含高危/中危、腐烂模拟、对照评测三块。"""
+    """总验收：report 生成 Markdown，含高危/中危、腐烂模拟、对照评测三块（默认英文显示层）。"""
 
     def test_report_generates_three_blocks(self):
+        hygieia.LANG = "en"
         res = hygieia.report(FIX)
         md = Path(res["path"]).read_text(encoding="utf-8")
-        for block in ("🔴 高危", "腐烂模拟", "对照评测"):
+        for block in ("🔴 High", "Rot simulation", "Evaluation"):
             self.assertIn(block, md)
         self.assertIn("13/20 (65%)", md)
         self.assertIn("20/20 (100%)", md)
+
+
+class TestReportZh(unittest.TestCase):
+    """中文显示层（--lang zh）：报告必须整份是中文，不掺英文块标题。"""
+
+    def test_report_zh_blocks(self):
+        old = hygieia.LANG
+        try:
+            hygieia.LANG = "zh"
+            res = hygieia.report(FIX)
+            md = Path(res["path"]).read_text(encoding="utf-8")
+            for block in ("🔴 高危", "腐烂模拟", "对照评测"):
+                self.assertIn(block, md)
+            self.assertNotIn("## Rot simulation", md)
+        finally:
+            hygieia.LANG = old
+            hygieia.report(FIX)  # 恢复英文版报告，保持仓库内产物为默认语言
 
 
 class TestOnExprYaml(unittest.TestCase):

@@ -1,147 +1,139 @@
-# Hygieia（许癸厄亚）
+<div align="center">
 
-> 不造本体，只养本体：语义层的体检、评测与防腐，全程本地离线。
+**English** · [简体中文](docs/readme/README_zh.md)
 
-🌐 [English](README.en.md) ｜ 状态：概念验证（demo），非产品，商业价值未验证
+# Hygieia
 
-Hygieia 是一个完全在本地运行的 Python 命令行工具，负责给语义层做体检：静态诊断（`audit`）、两臂对照评测（`eval`）、腐烂模拟（`rot`），最后产出一份 Markdown 体检报告（`report`）。它不建本体——只检查、评测和压力测试已有的语义层，让「口径腐烂」在坑到用户之前先被看见。
+### Inspect, evaluate, and stress-test your semantic layer — fully offline.
 
-- Python 3.10+，唯一依赖 `pyyaml`；全程不联网，不需要账号，也不需要任何 API key
-- 以 coding-agent skill 的形式交付，原名 ontology-doctor（本体医生）
-- 编码契约见 [docs/contract.md](docs/contract.md)（第十一～十四节）
+**A rotten ontology is worse than none. Three numbers show why.**
 
----
+Status: proof of concept (demo), not a product; commercial value unverified
 
-## 它能测出什么：三组关键数字
+[Install & quick start](#install--quick-start) · [The numbers](#the-numbers) · [How it works](#how-it-works) · [Known limitations](#known-limitations) · [Roadmap](#roadmap) · [Documentation](#documentation)
 
-语义层（指标、同义词、join、域与证据）是数据 agent 问数时唯一的口径来源。口径一旦漂移，agent 就会给出「看起来很自信的错误数字」。在 ecom 示例数据（6 表电商 + 20 题中文问题集）上跑 **demo 复现**——两臂答案由人工模拟，判分由真实 SQL 执行：
+<code>pip install -r requirements.txt && python scripts/hygieia.py audit fixtures/ecom</code>
 
-| 指标 | 无语义层 | 有语义层 |
-|---|---|---|
-| 准确率 | 13/20（65%） | 20/20（100%） |
-| **静默错答率** | **7/20（35%）** | **0/20（0%）** |
+</div>
 
-静默错答指的是：返回了数字、没报错、也没澄清——用户无从察觉。这是 `eval` 的核心指标。对照组答错的 7 道题里，比较有代表性的几道：
+Hygieia is a Python command-line tool that runs entirely on your machine and inspects your semantic layer: static diagnosis (`audit`), two-arm evaluation (`eval`), rot simulation (`rot`), and a final Markdown health report (`report`). It never builds an ontology — it only checks, evaluates, and stress-tests the one you already have, so a rotting definition gets caught before it reaches your users.
 
-| 题 | 问题 | 无语义层答 | 正确口径 |
-|---|---|---|---|
-| q07 | 上个月净收入是多少 | 1210（没扣取消单） | 1110 |
-| q08 | 总收入是多少 | 1860（含取消单） | 1760 |
-| q09 | 有多少活跃客户 | 6（直接数客户表） | 5（30 天内下过单） |
-| q10 | 营收是多少 | 1860（走了错误口径） | 1760（net_revenue） |
-| q11 | 下单转化率是多少 | 编造 0.25 | 没有访问数据，应澄清 |
-| q12 | 平均客单价是多少 | 155（含取消单） | 176 |
-| q20 | 净收入是否含运费 | 直接答「包含」 | 未定义运费，应澄清 |
+- Python 3.10+, single dependency `pyyaml`; no network, no accounts, no API keys
+- Ships as a coding-agent skill; formerly named ontology-doctor
 
-`audit` 在同一份语义层上检出 7 条问题（3 高危：R1 同义冲突、R3 join 歧义、R4 悬空引用；4 中危：R5 证据缺失）。`rot` 模拟三类常见漂移（列改名、定义篡改、新增孤儿指标）后重跑 audit，新增捕获 4 条——其中定义篡改命中的是漂移前就存在的 R4（refund_total 引用不存在的 refunds 表），按「新增捕获 = 前后集合差」的规则不计新增。
-
-透明度说明：本 demo 的评测是**「模拟两臂答案 + 真实 SQL 判分」**——两臂答案由人工模拟（`demo_results.json` 顶部标注 `simulated: true`），不是现场 LLM 跑出来的；金标 SQL 的数字来自种子数据真实执行（内存 SQLite）；判分逻辑是真实代码，按第十三节协议运行。关键指标 `net_revenue` 的表达式（`sum(orders.net_amount)`）可在 seed 上真实执行，treatment 答案与之一致；R4 埋雷落在独立的 `refund_total` 上，不参与 eval 金标路径。
-
-## 四个命令
-
-| 命令 | 做什么 | 输入 | 输出 |
-|---|---|---|---|
-| `audit` | 静态诊断 7 类问题（R1 同义冲突 / R2 孤儿指标 / R3 join 歧义 / R4 悬空引用 / R5 证据缺失 / R6 缺描述 / R7 冗余） | `semantic/metrics.yml` + `schema.sql` | 每条问题带规则、危险、修复建议 |
-| `eval` | 两臂对照评测：同一批问题，分别在没有/有语义层的条件下回答 | `questions.yaml` + 两臂答案（默认 `demo_results.json`） | 准确率与静默错答率 |
-| `rot` | 在内存副本注入三类漂移，重跑 audit，报告新增捕获（默认不写回磁盘） | 同上 | 漂移前 → 漂移后 → 新增捕获 |
-| `report` | 完整体检报告，含高危/中危、腐烂模拟、对照评测三块 | 同上 | `reports/health-report.md` |
-
-## 安装与快速开始
+## Install & quick start
 
 ```bash
-pip install -r requirements.txt   # 唯一依赖：pyyaml
+pip install -r requirements.txt   # the only dependency: pyyaml
 
-python scripts/hygieia.py audit  fixtures/ecom   # 静态诊断
-python scripts/hygieia.py eval   fixtures/ecom   # 两臂对照评测
-python scripts/hygieia.py rot    fixtures/ecom   # 腐烂模拟
-python scripts/hygieia.py report fixtures/ecom   # 完整体检报告
+python scripts/hygieia.py audit  fixtures/ecom   # static diagnosis
+python scripts/hygieia.py eval   fixtures/ecom   # two-arm evaluation
+python scripts/hygieia.py rot    fixtures/ecom   # rot simulation
+python scripts/hygieia.py report fixtures/ecom   # full health report
 ```
 
-跑完 `report` 后，打开 `fixtures/ecom/reports/health-report.md` 就能看到完整体检结果。`eval` 的终端输出长这样：
+After `report`, open `fixtures/ecom/reports/health-report.md` for the complete result. `eval` prints:
 
 ```
 $ python scripts/hygieia.py eval fixtures/ecom
-臂           正确        静默错答        准确率       静默错答率
-control（无语义层）13/20      7/20          65.0%       35.0%
-treatment（有语义层）20/20      0/20         100.0%        0.0%
+Arm                              Correct  Silent  Accuracy  Silent rate
+control (no semantic layer)      13/20    7/20    65.0%     35.0%
+treatment (with semantic layer)  20/20    0/20    100.0%    0.0%
 ```
 
-然后可以跑一遍自测，确认契约数字没被改坏：
+(The CLI output defaults to English. Output language follows `--lang` — `--lang zh` switches to the Chinese variant, which is written independently, not translated; the fixture mirrors a Chinese data-warehouse scenario, and the protocol itself is language-neutral.)
+
+Then run the self-tests to confirm the contract numbers still hold:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-常用可选参数：`--results <json>` 换评测答案文件；`--json` 输出机器可读结果；`--fail-on high` 存在高危即退出码 1（CI 用）；`--write` 让 `rot` 把漂移后的语义层落盘为 `metrics.rot.yml`。`doctor` 是 `audit` 的兼容别名。
+Useful flags: `--results <json>` to evaluate a different answer file, `--json` for machine-readable output, `--fail-on high` to exit 1 when high-severity findings exist (CI), `--lang zh|en` for the output language (default `en`), `--write` to let `rot` persist the drifted semantic layer as `metrics.rot.yml`. `doctor` is a compatibility alias for `audit`.
 
-## 为什么做这个项目
+## The numbers
 
-现有的语义层工具大多解决「怎么建」——从元数据、文档和表单引导生成本体。但建完之后怎么保证它不烂，没人管：诊断本体有没有毛病、证明本体到底救了 agent 还是害了它、检测本体什么时候开始腐烂，这三件事没有现成工具。Hygieia 是一个概念验证，只做这一件事，并用可复现的数字把「为什么需要它」演示出来。
+Your semantic layer (metrics, synonyms, joins, domains, evidence) is the only source of truth a data agent has when answering questions. Once a definition drifts, the agent starts producing confidently wrong numbers. Reproduced on the bundled `ecom` fixture (6-table e-commerce schema, 20 Chinese questions) — the two arms' answers are simulated, and the scoring is real SQL execution:
 
-本项目为原创：不对标、不引用任何第三方项目。
-
-## 项目结构
-
-```
-hygieia/
-├── SKILL.md                       # 触发语 + 操作契约（标准技能格式）
-├── README.md                      # 中文版说明
-├── README.en.md                   # 英文版说明
-├── docs/
-│   └── contract.md     # 全景 + 编码契约（第十一～十四节）
-├── scripts/hygieia.py             # audit / eval / rot / report
-├── tests/test_hygieia.py          # 标准库自测
-├── fixtures/ecom/
-│   ├── schema.sql                 # 6 表电商 DDL
-│   ├── seed.sql                   # 可眼算的原创合成小数据
-│   ├── semantic/metrics.yml       # 故意埋雷的语义层（R1/R3/R4/R5）
-│   ├── questions.yaml             # 20 题（含金标 SQL 与期望行为）
-│   ├── demo_results.json          # 两臂演示结果（simulated: true）
-│   └── reports/health-report.md   # report 生成的体检报告
-├── LICENSE                         # MIT 许可证
-└── requirements.txt               # pyyaml>=6.0
-```
-
-## 已知限制
-
-1. 两臂演示答案由人工模拟（`demo_results.json` 顶部已标注）：数字本身来自 SQL 真实执行，但答案不是模型现场生成的。真实评测需按协议在 coding agent 里现场跑，产物存 `fixtures/ecom/runs/<时间戳>/`；
-2. 规则是启发式，不是完整的 SQL 解析器（v1 计划换成 AST 级解析）；
-3. 只覆盖 7 类静态问题，深层口径语义、权限、动作安全不在范围内；
-4. 只支持单个 schema 目录、单一方言（SQLite 友好的子集即可跑通 fixture）；
-5. 没有界面、多租户或行动层；
-6. 「语义质量工具」的商业价值尚未验证——本项目只负责演示需求，不构成需求证明；
-7. v0 只认本仓库的目录布局和 `metrics.yml` 契约，第三方建模生态的适配器明确不做，列为 v1+ 候选。
-
-### 已知误报与漏检（避免过度承诺）
-
-| 规则 | 可能误报 | 已知漏检（v0 不做） |
+| Metric | No semantic layer | With semantic layer |
 |---|---|---|
-| R1 | 故意的别名分层（罕见） | 跨文件同义、近义而非同形 |
-| R3 | 互为备选的合法多路径 | 隐式 join、子查询内路径 |
-| R4 | 方言函数被当成列名 | 公共表表达式别名、宏/模板 |
-| R5 | 证据在仓库之外 | 过期证据仍算「有」 |
-| R6/R7 | 短而精准的描述 | 长篇但仍空洞的套话 |
+| Accuracy | 13/20 (65%) | 20/20 (100%) |
+| **Silent-error rate** | **7/20 (35%)** | **0/20 (0%)** |
 
-## 路线图
+A silent error is a wrong number with no error and no clarification — the user cannot tell. It is the core metric of `eval`. Representative failures from the control arm:
+
+| # | Question | No semantic layer | Correct answer |
+|---|---|---|---|
+| q07 | Last month's net revenue | 1210 (canceled orders included) | 1110 |
+| q08 | Total revenue | 1860 (canceled orders included) | 1760 |
+| q09 | Active customers | 6 (counted the whole table) | 5 (ordered within 30 days) |
+| q10 | Revenue | 1860 (wrong caliber) | 1760 (net_revenue) |
+| q11 | Order conversion rate | Fabricated 0.25 | No visit data — should clarify |
+| q12 | Average order value | 155 (canceled orders included) | 176 |
+| q20 | Does net revenue include shipping? | Confident "yes" | Undefined — should clarify |
+
+`audit` finds 7 issues in the same semantic layer (3 high: R1 synonym conflict, R3 join ambiguity, R4 dangling reference; 4 medium: R5 missing evidence). `rot` injects three kinds of drift (column rename, definition tampering, a new orphan metric) and re-runs audit: 4 new captures — the definition tampering hits an R4 that already existed before the drift (`refund_total` referencing the missing `refunds` table), so by the "new captures = set difference" rule it adds none.
+
+**Demo-data transparency**: this demo's evaluation is *simulated two-arm answers + real SQL scoring* — the two arms' answers are hand-authored (marked `simulated: true` at the top of `demo_results.json`), not produced by a live LLM; the gold-standard SQL numbers come from real execution against the seed data (in-memory SQLite); the scoring logic is real code following the Section 13 protocol. The key metric `net_revenue` has an executable expression (`sum(orders.net_amount)`) that runs on the seed and matches the treatment answers; the R4 trap lives on a separate `refund_total` metric that is not on the evaluation's gold path.
+
+## How it works
+
+### The four commands
+
+| Command | What it does | Input | Output |
+|---|---|---|---|
+| `audit` | Static diagnosis across 7 rule classes (R1 synonym conflict / R2 orphan metric / R3 join ambiguity / R4 dangling reference / R5 missing evidence / R6 missing description / R7 redundancy) | `semantic/metrics.yml` + `schema.sql` | Every finding with its rule, danger, and fix |
+| `eval` | Two-arm evaluation: the same questions answered with and without the semantic layer | `questions.yaml` + both arms' answers (default `demo_results.json`) | Accuracy and silent-error rate |
+| `rot` | Injects three kinds of drift into an in-memory copy and re-runs audit; reports new captures (never writes to disk by default) | Same as above | Before → after → new captures |
+| `report` | Full health report: high/medium findings, rot simulation, evaluation | Same as above | `reports/health-report.md` |
+
+### Why this project exists
+
+Existing tools mostly answer "how do I build an ontology" — bootstrapping one from metadata, docs, and guided forms. Nobody takes care of what happens after: diagnosing whether the ontology is broken, proving whether it helps or hurts your data agent, and detecting when it starts to rot. Hygieia is a proof of concept that does exactly this one thing, with reproducible numbers.
+
+It is an original project: it does not benchmark, cite, or reference any third-party project.
+
+## Known limitations
+
+1. The two arms' demo answers are hand-authored (marked `simulated: true` in `demo_results.json`): the numbers come from real SQL execution, but the answers were not generated live by a model. For a real evaluation, run the protocol inside a coding agent and store artifacts under `fixtures/ecom/runs/<timestamp>/`;
+2. The rules are heuristic, not a full SQL parser (v1 plans AST-level parsing);
+3. Only 7 static rule classes are covered; deep caliber semantics, permissions, and action safety are out of scope;
+4. A single schema directory and a single dialect are supported (a SQLite-friendly subset is enough to run the fixture);
+5. No UI, no multi-tenancy, no action layer;
+6. The commercial value of a "semantic-quality tool" is unverified — this project only demonstrates why one is needed; it is not a demand proof;
+7. v0 accepts only this repo's layout and the `metrics.yml` contract; adapters for third-party modeling ecosystems are explicitly out of scope (v1+ candidates);
+8. The eval scoring keywords are coupled to the answer language: v0 ships the Chinese marker table (数据不足 / 无法计算 / 不知道 / 无法回答 …); an English marker table is a v1+ item.
+
+### Known false positives and misses (no overpromising)
+
+| Rule | Possible false positives | Known misses (v0) |
+|---|---|---|
+| R1 | Intentional alias layering (rare) | Cross-file synonyms, near-synonyms |
+| R3 | Legitimate alternative multi-paths | Implicit joins, sub-query paths |
+| R4 | Dialect functions mistaken for columns | CTE aliases, macros/templates |
+| R5 | Evidence stored outside the repo | Stale evidence still counts as present |
+| R6/R7 | Short but precise descriptions | Long but empty boilerplate |
+
+## Roadmap
 
 ```
-v0（本 demo）  诊断 + 评测 + 腐烂模拟        ← 证明问题存在（当前版本）
-v1            AST 级解析 + 多方言 + 影响分析 + CI 门禁   ← 变成工程资产（2-3 周）
-v2            演化闭环：变更→检测→建议→审批→版本化      ← 补齐缺失的维护闭环（2-3 月）
-v3            跨平台语义一致性 + 行动层审计              ← 接市场空白（6-12 月）
+v0 (this demo)  diagnosis + evaluation + rot simulation       ← prove the problem exists (current release)
+v1              AST-level parsing + multi-dialect + impact analysis + CI gate  ← an engineering asset (2–3 weeks)
+v2              evolution loop: change → detect → suggest → approve → version  ← close the missing maintenance loop (2–3 months)
+v3              cross-platform semantic consistency + action-layer audit        ← the open slot (6–12 months)
 ```
 
-- v1：join 挖掘改用 AST 级 SQL 解析；支持主流中国数仓方言；合并请求触发 audit + eval，质量不达标即拦截；git 变更 → 受影响指标影响分析
-- v2：本体版本化与演化历史；变更 → 检测 → 建议 → 人工审批 → 合并的闭环；把维护从人工周报变成 CI 事件
+- v1: join mining moves to AST-level SQL parsing; mainstream Chinese data-warehouse dialects; merge requests trigger audit + eval and block on poor quality; git diff → impact analysis of affected metrics
+- v2: ontology versioning and evolution history; the change → detect → suggest → approve → merge loop; maintenance becomes CI events instead of a manual weekly report
 
-## 数据声明
+## Data statement
 
-ecom fixture 为原创合成演示数据，无任何外部数据来源。
+The `ecom` fixture is original synthetic demo data with no external source.
 
-## 许可证
+## License
 
-MIT License，见 [LICENSE](LICENSE)。
+MIT License — see [LICENSE](LICENSE).
 
 ---
 
-*概念验证阶段：demo 数据可为模拟，结论仅供讨论，不构成产品承诺。*
+*Proof of concept: demo data may be simulated; conclusions are for discussion and are not product promises.*
