@@ -13,6 +13,7 @@ import hygieia  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures" / "ecom"
+ADAPT_FIX = ROOT / "fixtures" / "adapt_dbt_mini"
 
 
 class TestSchemaParse(unittest.TestCase):
@@ -229,6 +230,47 @@ class TestDescriptionRules(unittest.TestCase):
             hygieia.load_schema(FIX / "schema.sql"), metrics, sm["domains"], sm["joins"])
         self.assertTrue(any(
             f["rule"] == "R7-redundant-description" and f["subject"] == "revenue" for f in findings))
+
+
+class TestAdaptDbt(unittest.TestCase):
+    """P2：只读适配器把 dbt/MetricFlow 子集映成 metrics.yml；audit 可跑、无布尔键 True、不伪造证据。"""
+
+    def test_adapt_dbt_mini_audit_runs(self):
+        data = hygieia.load_yml(ADAPT_FIX / "dbt_semantic.yml")
+        res = hygieia.adapt_dbt(data)
+        self.assertGreaterEqual(len(res["metrics"]), 3)
+        ids = {m["id"] for m in res["metrics"]}
+        self.assertTrue({"revenue", "net_revenue", "avg_order_value"} <= ids)
+        # cumulative 不支持 → 明确跳过（带原因），不瞎猜
+        self.assertIn("running_revenue", [s["item"] for s in res["skipped"]])
+        # 产出能被现有 loader 吃掉：无布尔键 True、无裸 on
+        import yaml
+        payload = {k: res[k] for k in ("version", "domains", "joins", "metrics")}
+        loaded = yaml.safe_load(yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+        self.assertNotIn(True, loaded)
+        for j in loaded["joins"]:
+            self.assertIn("on_expr", j)
+            self.assertNotIn(True, j)
+        # audit 能跑，且 R4 无悬空引用（mini schema 覆盖所有引用列）
+        findings = hygieia.audit_core(
+            hygieia.load_schema(ADAPT_FIX / "schema.sql"),
+            loaded["metrics"], loaded["domains"], loaded["joins"])
+        dangling = [f for f in findings if f["rule"] == "R4-dangling-ref"]
+        self.assertEqual(dangling, [])
+
+    def test_adapt_dbt_never_fabricates_evidence(self):
+        data = hygieia.load_yml(ADAPT_FIX / "dbt_semantic.yml")
+        res = hygieia.adapt_dbt(data)
+        for m in res["metrics"]:
+            self.assertNotIn("evidence", m)  # 无证据留空 → 现有 R5 会打中，属期望行为
+
+    def test_adapt_dbt_join_without_on_expr_skipped(self):
+        data = hygieia.load_yml(ADAPT_FIX / "dbt_semantic.yml")
+        data["joins"] = [{"left": "orders", "right": "customers",
+                          "on": "orders.customer_id = customers.id"}]
+        res = hygieia.adapt_dbt(data)
+        self.assertEqual(res["joins"], [])
+        self.assertIn("orders->customers", [s["item"] for s in res["skipped"]])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,37 @@
+version: 1
+domains:
+- id: sales
+joins:
+- left: orders
+  right: customers
+  on_expr: orders.customer_id = customers.id
+metrics:
+- id: revenue
+  name: revenue
+  synonyms: []
+  domain: sales
+  description: 含取消单的订单总额
+  expr: sum(orders.total_amount)
+  table: orders
+- id: net_revenue
+  name: net_revenue
+  synonyms: []
+  domain: sales
+  expr: sum(orders.net_amount)
+  table: orders
+- id: orders_with_customer
+  name: orders_with_customer
+  synonyms: []
+  expr: count(orders.customer_id)
+  table: orders
+- id: active_customers
+  name: active_customers
+  synonyms: []
+  expr: count(customers.id)
+  table: customers
+- id: avg_order_value
+  name: avg_order_value
+  synonyms: []
+  domain: sales
+  expr: (sum(orders.total_amount)) / (count(orders.customer_id))
+  table: orders

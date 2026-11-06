@@ -46,6 +46,8 @@ Hygieia 是一个完全在本地运行的 Python 命令行工具，负责给语�
 | `rot` | 在内存副本注入三类漂移，重跑 audit，报告新增捕获（默认不写回磁盘） | 同上 | 漂移前 → 漂移后 → 新增捕获 |
 | `report` | 完整体检报告，含高危/中危、腐烂模拟、对照评测三块 | 同上 | `reports/health-report.md` |
 
+`adapt dbt` 是只读工具：把 dbt / MetricFlow YAML 子集映成 `metrics.yml` 契约，让现有 audit 能对第三方语义层做下游质检（见 [docs/adapters.md](../../docs/adapters.md)）。
+
 ## 安装与快速开始
 
 CLI 输出默认英文（与英文仓库默认一致）；中文会话加 `--lang zh` 即得整份中文输出，两套文案各自成文，不是机翻关系，数字完全一致：
@@ -113,7 +115,7 @@ hygieia/
 4. 只支持单个 schema 目录、单一方言（SQLite 友好的子集即可跑通 fixture）；
 5. 没有界面、多租户或行动层；
 6. 「语义质量工具」的商业价值尚未验证——本项目只负责演示需求，不构成需求证明；
-7. v0 只认本仓库的目录布局和 `metrics.yml` 契约，第三方建模生态的适配器明确不做，列为 v1+ 候选；
+7. v0 的原生布局为 `metrics.yml` 契约；`adapt dbt` 是只读下游适配器（dbt/MetricFlow YAML 子集，输入假设与映射见 [docs/adapters.md](../../docs/adapters.md)）——写回、bootstrap 与其它生态明确不做；
 8. eval 判分关键词与答案语言耦合：v0 为中文关键词表（数据不足 / 无法计算 / 不知道 / 无法回答…），英文关键词表列为 v1+。
 
 ### 已知误报与漏检（避免过度承诺）

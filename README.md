@@ -87,6 +87,8 @@ A silent error is a wrong number with no error and no clarification — the user
 | `rot` | Injects three kinds of drift into an in-memory copy and re-runs audit; reports new captures (never writes to disk by default) | Same as above | Before → after → new captures |
 | `report` | Full health report: high/medium findings, rot simulation, evaluation | Same as above | `reports/health-report.md` |
 
+`adapt dbt` is a read-only utility: it maps a dbt / MetricFlow YAML subset onto the `metrics.yml` contract so the existing audit can inspect third-party semantic layers downstream (see [docs/adapters.md](docs/adapters.md)).
+
 ### Why this project exists
 
 Existing tools mostly answer "how do I build an ontology" — bootstrapping one from metadata, docs, and guided forms (e.g., the ontology-skills bootstrap flow). Hygieia is the other half: it does not bootstrap anything; it inspects, evaluates, and stress-tests whatever semantic layer you already have, no matter where it came from. A bootstrap output can be handed to Hygieia as a downstream quality gate — it will tell you whether the ontology is already broken and whether a data agent would silently answer wrong. Nobody was taking care of that after-the-fact half: diagnosing, proving with reproducible numbers, and detecting rot early. Hygieia is a proof of concept that does exactly this one thing.
@@ -101,7 +103,7 @@ It remains an original project: it does not benchmark, cite, or rely on any thir
 4. A single schema directory and a single dialect are supported (a SQLite-friendly subset is enough to run the fixture);
 5. No UI, no multi-tenancy, no action layer;
 6. The commercial value of a "semantic-quality tool" is unverified — this project only demonstrates why one is needed; it is not a demand proof;
-7. v0 accepts only this repo's layout and the `metrics.yml` contract; adapters for third-party modeling ecosystems are explicitly out of scope (v1+ candidates);
+7. v0's native layout is the `metrics.yml` contract; `adapt dbt` is a read-only downstream adapter for a dbt/MetricFlow YAML subset (input assumptions and mapping: [docs/adapters.md](docs/adapters.md)) — write-back, bootstrap, and other ecosystems are out of scope;
 8. The eval scoring keywords are coupled to the answer language: v0 ships the Chinese marker table (数据不足 / 无法计算 / 不知道 / 无法回答 …); an English marker table is a v1+ item.
 
 ### Known false positives and misses (no overpromising)

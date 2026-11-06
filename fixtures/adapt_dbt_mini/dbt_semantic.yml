@@ -1,0 +1,59 @@
+# 输入假设（docs/adapters.md）：dbt Semantic Layer / MetricFlow YAML 子集
+# semantic_models[].name + measures[]（name, agg）；metrics[]（simple/ratio）；
+# joins[] 可选，必须用 on_expr（裸 on 会被 YAML 1.1 解析成布尔键 True）。
+semantic_models:
+  - name: orders
+    entities:
+      - name: customer_id
+        type: foreign
+    measures:
+      - name: total_amount
+        agg: sum
+        description: 订单总金额（含取消单）
+      - name: net_amount
+        agg: sum
+      - name: customer_id
+        agg: count
+  - name: customers
+    entities:
+      - name: id
+        type: primary
+    measures:
+      - name: id
+        agg: count
+
+metrics:
+  - name: revenue
+    type: simple
+    type_params:
+      measure: total_amount
+    group: sales
+    description: 含取消单的订单总额
+  - name: net_revenue
+    type: simple
+    type_params:
+      measure: net_amount
+    group: sales
+  - name: orders_with_customer
+    type: simple
+    type_params:
+      measure: customer_id
+  - name: active_customers
+    type: simple
+    type_params:
+      measure: id
+  - name: avg_order_value
+    type: ratio
+    type_params:
+      numerator: total_amount
+      denominator: customer_id
+    group: sales
+  - name: running_revenue
+    type: cumulative
+    type_params:
+      measure: total_amount
+
+joins:
+  - left: orders
+    right: customers
+    on_expr: "orders.customer_id = customers.id"
