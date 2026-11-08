@@ -15,3 +15,5 @@ fixtures/*/runs/*
 .tmp*/
 .tmp-*.json
 .tmp-*.sarif
+build/
+dist/

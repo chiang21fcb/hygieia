@@ -249,4 +249,4 @@ Left for v1+ to keep the demo scope bounded.
 
 ---
 
-*Repository name `hygieia`; CLI entry `scripts/hygieia.py`.*
+*Repository and project name `hygieia`; installed distribution `hygieia-sl`; CLI entry `hygieia` (console script). `python scripts/hygieia.py` remains a thin compatibility shim.*

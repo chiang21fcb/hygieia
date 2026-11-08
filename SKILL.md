@@ -36,13 +36,12 @@ A fully offline semantic-layer health-check skill. Given a fixture directory (`s
 ## Usage
 
 ```bash
-python scripts/hygieia.py audit  fixtures/ecom
-python scripts/hygieia.py eval   fixtures/ecom
-python scripts/hygieia.py rot    fixtures/ecom
-python scripts/hygieia.py report fixtures/ecom
+hygieia audit  fixtures/ecom
+hygieia eval   fixtures/ecom
+hygieia rot    fixtures/ecom
+hygieia report fixtures/ecom
 
-# after `pip install -e .` the same CLI is available as `hygieia`:
-hygieia audit fixtures/ecom
+# python scripts/hygieia.py ... still works as a thin compatibility shim.
 ```
 
 Self-test: `python -m unittest discover -s tests -v` (asserts the contract numbers: 65%/100%, silent rates 35%/0%, audit 7 findings, rot 6 new captures = structural 4 + semantic 2). CI/agent wiring: `docs/integrate-ci.md`, `docs/integrate-agent.md`; SARIF via `audit --sarif`.

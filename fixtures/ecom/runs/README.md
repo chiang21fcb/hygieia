@@ -22,7 +22,7 @@ runs, and the prompt version.
 Score a run with:
 
 ```bash
-python scripts/hygieia.py eval fixtures/ecom --results fixtures/ecom/runs/<run_id>
+hygieia eval fixtures/ecom --results fixtures/ecom/runs/<run_id>
 ```
 
 The committed `demo_results.json` (`simulated: true`) stays the regression

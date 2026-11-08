@@ -26,7 +26,7 @@ model, `prompt_sha256`, `questions_sha256`, `corpus_sha256`, `semantic_sha256`,
 ## Scoring
 
 ```bash
-python scripts/hygieia.py eval fixtures/ecom --results fixtures/ecom/runs/<run_id>
+hygieia eval fixtures/ecom --results fixtures/ecom/runs/<run_id>
 ```
 
 - The scorer answers questions from `fixtures/ecom/questions.yaml` and checks

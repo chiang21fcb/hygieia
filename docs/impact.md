@@ -8,10 +8,10 @@ upstream change touches and should be re-audited.
 
 ```bash
 # from a patch file
-python scripts/hygieia.py impact fixtures/ecom --diff change.patch
+hygieia impact fixtures/ecom --diff change.patch
 
 # from a git range (CI style)
-git diff <base>...<head> | python scripts/hygieia.py impact fixtures/ecom --diff -
+git diff <base>...<head> | hygieia impact fixtures/ecom --diff -
 ```
 
 `--lang zh|en` switches the report language (default `en`). Exit code is
