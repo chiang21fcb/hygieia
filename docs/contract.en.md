@@ -62,13 +62,30 @@ metrics:
     grain: order
 ```
 
+**Optional extensions (v0.2, backward compatible; existing files such as `ecom` need no change):**
+
+- `metrics[].filter`: caliber filter expression (a string, preserved verbatim; not AST-validated in v0). `adapt dbt` merges metric-level and measure-level `filter` into this field; `adapt ossie` never emits it (Ossie writes filtering inside `expression.sql`).
+- `dimensions[]`: dimension (field) definitions, produced by `adapt ossie` from `datasets[].fields[]`. Fields: `id` (required, unique), `name`, `table`, `expr`, `synonyms`, `description`. **Dimensions participate in R1 synonym conflicts only** — one phrase pointing at both a field and a metric is the same silent ambiguity; they do not take part in R2/R5/R6/R7, because a dimension is not a metric caliber.
+
+```yaml
+dimensions:
+  - id: ss_sales_price
+    name: ss_sales_price
+    table: store_sales
+    expr: "ss_sales_price"
+    synonyms: ["unit price", "price"]
+    description: "Sales price per unit"
+```
+
+**`schema.sql` is optional (v0.2)**: when absent, `audit` does not crash and still runs R1/R2/R5/R6/R8/R9; R4 and the table/column checks of R3 are skipped (R3 join ambiguity still runs), and every skipped rule is listed with its reason in the output's `skipped_rules` and on the terminal. `eval` and `rot` still require `schema.sql` + `seed.sql`.
+
 > **Why `on_expr`, not `on`**: YAML 1.1 parses a bare `on` as the boolean key `True`
 > (PyYAML `safe_load` included), silently dropping the field. `on_expr` is a stable
 > string key, and R3/R4 validation reads it exclusively.
 
 Parsing rules (v0; sqlglot AST, testable):
 
-- extract table.column references from `expr` with the sqlglot AST (sqlite dialect; `scripts/sql_refs.py`); an unparseable expression is reported explicitly, never silently ignored;
+- extract table.column references from `expr` with the sqlglot AST (sqlite dialect; `hygieia/sql_refs.py`); an unparseable expression is reported explicitly, never silently ignored;
 - `joins[].left/right` must be tables in the schema;
 - from `joins[].on_expr`, extract table.column references with the same AST and validate each: missing table or column → `R4-dangling-ref` (subject: `join <left>-><right>`);
 - synonyms are compared after `strip` + lowercase (Chinese synonyms: exact match);

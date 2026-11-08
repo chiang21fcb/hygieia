@@ -1,0 +1,71 @@
+# Trimmed, jaffle-sl-template-shaped semantic model (dbt Labs' jaffle-sl-template
+# is Apache-2.0; this file reproduces only the structure needed by the mapper,
+# not the upstream file). Two measure enclodings are covered on purpose:
+#   - orders.measures as list[obj]
+#   - customers.measures as dict[name, obj]
+version: 2
+semantic_models:
+  - name: orders
+    model: ref('orders')
+    entities:
+      - name: order
+        type: primary
+        expr: order_id
+    dimensions:
+      - name: is_food_order
+        type: categorical
+    measures:
+      - name: order_total
+        agg: sum
+        expr: amount
+      - name: order_count
+        agg: count
+        expr: "1"
+      - name: food_order_total
+        agg: sum
+        expr: CASE WHEN is_food_order THEN amount ELSE 0 END
+        filter: "is_food_order = true"
+
+  - name: customers
+    model: ref('customers')
+    entities:
+      - name: customer
+        type: primary
+        expr: customer_id
+    measures:
+      customer_count:
+        agg: count
+        expr: customer_id
+
+metrics:
+  - name: revenue
+    type: simple
+    type_params:
+      measure: order_total
+    description: Total order amount
+  - name: order_count
+    type: simple
+    type_params:
+      measure: order_count
+  - name: food_revenue
+    type: simple
+    type_params:
+      measure: food_order_total
+    filter: "{{ Dimension('order__is_food_order') }} = true"
+    description: Revenue for food orders only
+  - name: customer_count
+    type: simple
+    type_params:
+      measure: customer_count
+  # Newer dbt spec: metric carries agg/expr directly, no measure reference.
+  - name: avg_order_value
+    type: simple
+    agg: average
+    expr: amount
+    model: orders
+    description: Average order amount
+  # Must be skipped with a reason, never silently dropped.
+  - name: broken_metric
+    type: simple
+    type_params:
+      measure: does_not_exist

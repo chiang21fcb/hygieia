@@ -1,0 +1,265 @@
+# yaml-language-server: $schema=../core-spec/ossie-schema.json
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Trimmed copy of apache/ossie examples/tpcds_semantic_model.yaml
+# (upstream: https://github.com/apache/ossie/blob/main/examples/tpcds_semantic_model.yaml).
+# Only the datasets/relationships/metrics needed to exercise `adapt ossie` + `audit`
+# are kept; the vocabulary conflicts below (price / location / profit) are upstream,
+# not injected. See docs/public-layers.md for the reproduction command.
+
+version: "0.2.0.dev0"
+
+name: tpcds_retail_model
+description: Trimmed TPC-DS retail semantic model (Apache Ossie / OSI sample)
+ai_context:
+  instructions: "Use this semantic model for retail analytics on the TPC-DS benchmark."
+
+datasets:
+  # Fact table: Store sales transactions
+  - name: store_sales
+    source: tpcds.public.store_sales
+    primary_key: [ss_item_sk, ss_ticket_number]
+    description: Fact table containing all store sales transactions
+    ai_context:
+      synonyms:
+        - "sales transactions"
+        - "store purchases"
+        - "retail sales"
+
+    fields:
+      - name: ss_sold_date_sk
+        expression:
+          sql: ss_sold_date_sk
+        description: Foreign key to date dimension
+        datatype: Integer
+        dimension:
+          is_time: false
+        ai_context:
+          synonyms:
+            - "sale date"
+            - "transaction date"
+
+      - name: ss_item_sk
+        expression:
+          sql: ss_item_sk
+        description: Foreign key to item dimension
+        datatype: Integer
+        dimension:
+          is_time: false
+        ai_context:
+          synonyms:
+            - "product"
+            - "item"
+
+      - name: ss_customer_sk
+        expression:
+          sql: ss_customer_sk
+        description: Foreign key to customer dimension
+        datatype: Integer
+        dimension:
+          is_time: false
+        ai_context:
+          synonyms:
+            - "customer"
+            - "buyer"
+
+      - name: ss_store_sk
+        expression:
+          sql: ss_store_sk
+        description: Foreign key to store dimension
+        datatype: Integer
+        dimension:
+          is_time: false
+        ai_context:
+          synonyms:
+            - "store"
+            - "location"
+
+      - name: ss_quantity
+        expression:
+          sql: ss_quantity
+        description: Quantity of items sold
+        datatype: Integer
+        ai_context:
+          synonyms:
+            - "units sold"
+            - "quantity"
+
+      - name: ss_sales_price
+        expression:
+          sql: ss_sales_price
+        description: Sales price per unit
+        datatype: Decimal
+        ai_context:
+          synonyms:
+            - "unit price"
+            - "price"
+
+      - name: ss_ext_sales_price
+        expression:
+          sql: ss_ext_sales_price
+        description: Extended sales price (quantity * price)
+        datatype: Decimal
+        ai_context:
+          synonyms:
+            - "total price"
+            - "line total"
+
+      - name: ss_net_profit
+        expression:
+          sql: ss_net_profit
+        description: Net profit from the sale
+        datatype: Decimal
+        ai_context:
+          synonyms:
+            - "profit"
+            - "margin"
+
+    # Dataset-scoped metric: aggregates this dataset's own field by unqualified name.
+    metrics:
+      - name: total_quantity
+        expression:
+          sql: SUM(ss_quantity)
+        description: Total quantity sold across all store sales
+        datatype: Integer
+
+  # Dimension table: Item (Product)
+  - name: item
+    source: tpcds.public.item
+    primary_key: [i_item_sk]
+    description: Item/Product dimension with product attributes
+    fields:
+      - name: i_item_sk
+        expression:
+          sql: i_item_sk
+        description: Surrogate key for item
+        datatype: Integer
+
+      - name: i_item_id
+        expression:
+          sql: i_item_id
+        description: Business key for item
+        datatype: String
+        ai_context:
+          synonyms:
+            - "item ID"
+            - "product ID"
+            - "SKU"
+
+      - name: i_brand
+        expression:
+          sql: i_brand
+        description: Brand name
+        datatype: String
+        ai_context:
+          synonyms:
+            - "brand"
+            - "manufacturer"
+
+      - name: i_current_price
+        expression:
+          sql: i_current_price
+        description: Current price of the item
+        datatype: Decimal
+        ai_context:
+          synonyms:
+            - "price"
+            - "list price"
+
+  # Dimension table: Store
+  - name: store
+    source: tpcds.public.store
+    primary_key: [s_store_sk]
+    description: Store dimension with location and store attributes
+    fields:
+      - name: s_store_sk
+        expression:
+          sql: s_store_sk
+        description: Surrogate key for store
+        datatype: Integer
+
+      - name: s_city
+        expression:
+          sql: s_city
+        description: City where store is located
+        datatype: String
+        ai_context:
+          synonyms:
+            - "city"
+            - "location"
+
+      - name: s_number_employees
+        expression:
+          sql: s_number_employees
+        description: Number of employees at the store
+        datatype: Integer
+        ai_context:
+          synonyms:
+            - "employee count"
+            - "staff size"
+
+# Relationships between datasets
+relationships:
+  - name: store_sales_to_item
+    from: store_sales
+    to: item
+    from_columns: [ss_item_sk]
+    to_columns: [i_item_sk]
+
+  - name: store_sales_to_store
+    from: store_sales
+    to: store
+    from_columns: [ss_store_sk]
+    to_columns: [s_store_sk]
+
+# Semantic model-level metrics spanning multiple datasets
+metrics:
+  - name: total_sales
+    expression:
+      sql: SUM(store_sales.ss_ext_sales_price)
+    description: Total sales revenue across all transactions
+    datatype: Decimal
+    ai_context:
+      synonyms:
+        - "total revenue"
+        - "gross sales"
+        - "sales amount"
+
+  - name: total_profit
+    expression:
+      sql: SUM(store_sales.ss_net_profit)
+    description: Total net profit from store sales
+    datatype: Decimal
+    ai_context:
+      synonyms:
+        - "net profit"
+        - "profit"
+
+  - name: customer_lifetime_value
+    expression:
+      sql: SUM(store_sales.ss_ext_sales_price) / COUNT(DISTINCT store_sales.ss_customer_sk)
+    description: Average lifetime sales value per customer
+    datatype: Decimal
+    ai_context:
+      synonyms:
+        - "CLV"
+        - "LTV"
+
+custom_extensions:
+  - vendor_name: DBT
+    data: '{"project_name": "tpcds_analytics", "models_path": "models/semantic"}'

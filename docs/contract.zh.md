@@ -53,9 +53,26 @@ metrics:
     grain: order
 ```
 
+**可选扩展（v0.2 起，向后兼容；ecom 等旧文件无需改动）：**
+
+- `metrics[].filter`：口径过滤条件（字符串，原样保留；v0 不做 AST 校验）。`adapt dbt` 会把 metric 级 `filter` 与 measure 级 `filter` 合并写进该字段；`adapt ossie` 不产生它（Ossie 把过滤写在 `expression.sql` 里）。
+- `dimensions[]`：维度（字段）定义，`adapt ossie` 把 `datasets[].fields[]` 映射到这里。字段：`id`（必填且唯一）、`name`、`table`、`expr`、`synonyms`、`description`。**dimensions 只参与 R1 同义冲突**——同一句人话同时指向字段和指标，同样是静默歧义；它们不参与 R2/R5/R6/R7，因为维度不是指标口径。
+
+```yaml
+dimensions:
+  - id: ss_sales_price
+    name: ss_sales_price
+    table: store_sales
+    expr: "ss_sales_price"
+    synonyms: ["unit price", "price"]
+    description: "Sales price per unit"
+```
+
+**`schema.sql` 是可选的（v0.2）**：不存在时 `audit` 不崩溃，照常运行 R1/R2/R5/R6/R8/R9；R4 与 R3 的表/列校验被跳过（R3 的 join 歧义检查仍运行），并在输出 JSON 的 `skipped_rules` 与终端里逐条写明原因。`eval` / `rot` 仍需 `schema.sql` + `seed.sql`。
+
 **解析规则（v0；sqlglot AST，可测）：**
 
-- 用 sqlglot 的 AST 从 `expr` 提取表.列引用（sqlite 方言；`scripts/sql_refs.py`）；解析失败视为不可解析，显式上报，绝不静默忽略；
+- 用 sqlglot 的 AST 从 `expr` 提取表.列引用（sqlite 方言；`hygieia/sql_refs.py`）；解析失败视为不可解析，显式上报，绝不静默忽略；
 - `joins[].left/right` 必须是 schema 中的表；
 - 用同一套 AST 从 `joins[].on_expr` 提取表.列引用并逐项校验：表或列不存在 → `R4-dangling-ref`（subject 为 `join <left>-><right>`）；
 - synonym 比较前做 `strip` + 小写（中文同义词保持原样精确匹配即可）；

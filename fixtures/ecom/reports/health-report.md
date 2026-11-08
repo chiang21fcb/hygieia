@@ -3,7 +3,7 @@
 - Fixture: ecom (6 tables, 20 Chinese questions)
 
 ## 🔴 High (3)
-- R1-synonym-conflict: synonym "营收" maps to multiple metrics: revenue, net_revenue; a query may silently pick the wrong caliber
+- R1-synonym-conflict: synonym "营收" maps to multiple metrics/fields: revenue, net_revenue; a query may silently pick the wrong caliber
 - R3-join-ambiguity: orders -> customers has 2 join paths; an agent may pick the wrong path, doubling or dropping amounts
 - R4-dangling-ref: metric 'refund_total' references a missing table 'refunds'; this metric is guaranteed to be wrong
 

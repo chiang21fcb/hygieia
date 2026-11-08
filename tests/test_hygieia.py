@@ -8,8 +8,8 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import hygieia  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from hygieia import engine as hygieia  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures" / "ecom"
@@ -678,3 +678,190 @@ class TestRotSemanticDecay(unittest.TestCase):
         res = hygieia.audit(FIX)
         self.assertEqual(res["summary"]["total"], 7)
         self.assertEqual(res["summary"]["counts"]["high"], 3)
+
+
+class TestClarifyPriority(unittest.TestCase):
+    """A2：clarify marker 先于「裸数字」；但给了 sql/value 仍算 silent。"""
+
+    def _score(self, raw, sql=None, value=None):
+        q = {"id": "x", "text": "t", "expected_behavior": "clarify", "gold_sql": None}
+        return hygieia.score_one(q, {"qid": "x", "raw": raw, "sql": sql, "value": value},
+                                 None, lang="zh")["label"]
+
+    def test_clarify_with_digits_is_clarify(self):
+        self.assertEqual(self._score("需澄清：缺少近30天数据，无法计算转化率"), "clarify")
+
+    def test_digits_without_marker_is_silent(self):
+        self.assertEqual(self._score("转化率约 0.25"), "silent_error")
+
+    def test_marker_plus_value_is_silent(self):
+        self.assertEqual(self._score("数据不足，给不出准确值", value=0.25), "silent_error")
+
+    def test_marker_plus_sql_is_silent(self):
+        self.assertEqual(self._score("需要澄清口径", sql="SELECT 1"), "silent_error")
+
+    def test_filler_is_still_abstain(self):
+        self.assertEqual(self._score("嗯"), "abstain")
+
+
+class TestAdaptDbtJaffle(unittest.TestCase):
+    """A1：jaffle 形状的真实层输入——expr/filter 忠实映射，不塌成裸 measure 名。"""
+
+    JAF = ROOT / "fixtures" / "adapt_dbt_jaffle"
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        import yaml
+        data = yaml.safe_load((cls.JAF / "semantic_model.yaml").read_text(encoding="utf-8"))
+        cls.res = hygieia.adapt_dbt(data)
+        cls.by_id = {m["id"]: m for m in cls.res["metrics"]}
+        cls.tmp = Path(tempfile.mkdtemp()) / "jaffle"
+        (cls.tmp / "semantic").mkdir(parents=True)
+        (cls.tmp / "schema.sql").write_text((cls.JAF / "schema.sql").read_text(encoding="utf-8"),
+                                            encoding="utf-8")
+        payload = {k: cls.res[k] for k in ("version", "domains", "joins", "metrics")}
+        (cls.tmp / "semantic" / "metrics.yml").write_text(
+            yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    def test_measure_expr_is_used_not_name(self):
+        self.assertEqual(self.by_id["revenue"]["expr"], "sum(orders.amount)")
+        self.assertEqual(self.by_id["order_count"]["expr"], "count(1)")
+
+    def test_two_metrics_do_not_collapse(self):
+        self.assertNotEqual(self.by_id["revenue"]["expr"], self.by_id["food_revenue"]["expr"])
+        self.assertIn("CASE WHEN is_food_order", self.by_id["food_revenue"]["expr"])
+
+    def test_filters_are_preserved(self):
+        self.assertIn("Dimension('order__is_food_order')", self.by_id["food_revenue"]["filter"])
+        self.assertIn("is_food_order = true", self.by_id["food_revenue"]["filter"])
+
+    def test_dict_measures_supported(self):
+        self.assertEqual(self.by_id["customer_count"]["expr"], "count(customers.customer_id)")
+
+    def test_metric_level_agg_expr_supported(self):
+        self.assertEqual(self.by_id["avg_order_value"]["expr"], "avg(orders.amount)")
+
+    def test_unmappable_metric_is_skipped_with_reason(self):
+        items = {s["item"]: s["reason"] for s in self.res["skipped"]}
+        self.assertIn("broken_metric", items)
+        self.assertIn("does_not_exist", items["broken_metric"])
+
+    def test_adapted_layer_runs_audit(self):
+        res = hygieia.audit(self.tmp)
+        rules = {f["rule"] for f in res["findings"]}
+        self.assertNotIn("R4-dangling-ref", rules)  # unqualified CASE columns resolved via table
+
+
+class TestAdaptOssie(unittest.TestCase):
+    """A4：Ossie/OSI 是一等输入——只读映射、synonym 冲突可稳定检出、无 schema 不崩。"""
+
+    OSSIE = ROOT / "fixtures" / "ossie_tpcds" / "ossie_semantic_model.yaml"
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        import yaml
+        data = yaml.safe_load(cls.OSSIE.read_text(encoding="utf-8"))
+        cls.res = hygieia.adapt_ossie(data)
+        cls.by_id = {m["id"]: m for m in cls.res["metrics"]}
+        cls.dims = {d["id"]: d for d in cls.res["dimensions"]}
+        # 刻意不写 schema.sql：Ossie 侧只有语义模型，物理列校验应被跳过而不是崩溃
+        cls.tmp = Path(tempfile.mkdtemp()) / "ossie_tpcds"
+        (cls.tmp / "semantic").mkdir(parents=True)
+        payload = {k: cls.res[k] for k in ("version", "domains", "joins", "metrics", "dimensions")}
+        (cls.tmp / "semantic" / "metrics.yml").write_text(
+            yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    def test_datasets_become_domains(self):
+        self.assertEqual({d["id"] for d in self.res["domains"]},
+                         {"store_sales", "item", "store"})
+
+    def test_fields_become_dimensions_with_synonyms(self):
+        self.assertIn("price", self.dims["ss_sales_price"]["synonyms"])
+        self.assertEqual(self.dims["ss_sales_price"]["table"], "store_sales")
+        self.assertEqual(self.dims["ss_sales_price"]["expr"], "ss_sales_price")
+
+    def test_metrics_keep_expr_and_bind_table(self):
+        self.assertEqual(self.by_id["total_profit"]["expr"], "SUM(store_sales.ss_net_profit)")
+        self.assertEqual(self.by_id["total_profit"]["table"], "store_sales")
+        self.assertEqual(self.by_id["total_profit"]["domain"], "store_sales")
+
+    def test_relationships_become_joins(self):
+        joins = {(j["left"], j["right"]): j["on_expr"] for j in self.res["joins"]}
+        self.assertEqual(joins[("store_sales", "item")],
+                         "store_sales.ss_item_sk = item.i_item_sk")
+
+    def test_unmappable_content_is_skipped_with_reason(self):
+        items = {s["item"]: s["reason"] for s in self.res["skipped"]}
+        self.assertIn("custom_extensions[DBT]", items)
+        self.assertIn("ai_context.instructions", items)
+        self.assertTrue(any(k.startswith("dataset ai_context.synonyms") for k in items))
+
+    def test_public_sample_synonym_conflicts_are_detected(self):
+        res = hygieia.audit(self.tmp)
+        subjects = {f["subject"] for f in res["findings"] if f["rule"] == "R1-synonym-conflict"}
+        self.assertEqual(subjects, {"price", "location", "profit"})
+
+    def test_audit_without_schema_does_not_crash(self):
+        res = hygieia.audit(self.tmp)
+        self.assertFalse(res["schema"])
+        self.assertEqual(res["tables"], {})
+        rules = {f["rule"] for f in res["findings"]}
+        self.assertNotIn("R4-dangling-ref", rules)  # 需要物理列的规则被跳过
+        self.assertIn("R5-no-evidence", rules)      # 不依赖 schema 的规则仍然运行
+        skipped = {s["rule"] for s in res["skipped_rules"]}
+        self.assertIn("R4-dangling-ref", skipped)
+
+    def test_dimension_synonyms_do_not_create_metric_noise(self):
+        res = hygieia.audit(self.tmp)
+        r5_subjects = {f["subject"] for f in res["findings"] if f["rule"] == "R5-no-evidence"}
+        self.assertNotIn("ss_sales_price", r5_subjects)
+
+
+class TestSarif(unittest.TestCase):
+    """B1：audit → SARIF 2.1.0，供 codeql-action/upload-sarif 标注 PR 文件。"""
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        cls.res = hygieia.audit(FIX)
+        cls.tmp = Path(tempfile.mkdtemp())
+
+    def test_shape_and_rules(self):
+        sarif = hygieia.build_sarif(self.res)
+        self.assertEqual(sarif["version"], "2.1.0")
+        run = sarif["runs"][0]
+        self.assertEqual(run["tool"]["driver"]["name"], "Hygieia")
+        self.assertEqual(len(run["results"]), len(self.res["findings"]))
+        self.assertEqual(len({r["id"] for r in run["tool"]["driver"]["rules"]}),
+                         len(run["tool"]["driver"]["rules"]))
+
+    def test_levels_and_locations(self):
+        sarif = hygieia.build_sarif(self.res)
+        results = sarif["runs"][0]["results"]
+        self.assertEqual({r["level"] for r in results}, {"error", "warning"})
+        for r in results:
+            loc = r["locations"][0]
+            self.assertEqual(loc["physicalLocation"]["artifactLocation"]["uri"],
+                             "semantic/metrics.yml")
+            self.assertEqual(r["locations"][0]["logicalLocations"][0]["name"],
+                             r["properties"]["subject"])
+
+    def test_cli_writes_sarif_and_keeps_exit_code(self):
+        import contextlib
+        import io
+        import json
+        out = self.tmp / "findings.sarif"
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = hygieia.main(["audit", str(FIX), "--sarif", str(out), "--fail-on", "high"])
+        self.assertEqual(code, 1)
+        sarif = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(sarif["version"], "2.1.0")
+
+    def test_fail_on_none_disables_gate(self):
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = hygieia.main(["audit", str(FIX), "--fail-on", "none"])
+        self.assertEqual(code, 0)

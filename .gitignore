@@ -11,3 +11,7 @@ fixtures/*/runs/*
 !fixtures/ecom/runs/live-20261106-dsh/**
 
 *.egg-info/
+
+.tmp*/
+.tmp-*.json
+.tmp-*.sarif
