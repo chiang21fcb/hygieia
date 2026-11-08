@@ -1,0 +1,31 @@
+name: semantic layer
+
+on:
+  pull_request:
+    paths:
+      - "semantic/**"
+      - "schema.sql"
+  push:
+    branches: [main]
+    paths:
+      - "semantic/**"
+      - "schema.sql"
+
+permissions:
+  contents: read
+  security-events: write   # lets codeql-action/upload-sarif annotate the PR
+
+jobs:
+  hygieia:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Audit the semantic layer
+        uses: chiang21fcb/hygieia/.github/actions/audit@main
+        with:
+          path: .            # repo root: contains semantic/metrics.yml + schema.sql
+          fail-on: high
+          # already-uploaded SARIF is annotated on changed files; drop to "false"
+          # in repos without code scanning enabled
+          upload-sarif: "true"

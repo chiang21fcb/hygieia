@@ -1,0 +1,36 @@
+version: 1
+domains:
+  - id: sales
+    description: "Sales domain"
+
+metrics:
+  - id: revenue
+    name: Revenue
+    synonyms: ["revenue", "sales"]
+    domain: sales
+    table: orders
+    expr: "sum(orders.amount)"
+    description: "Gross amount of all orders, including cancelled ones"
+    evidence:
+      - type: doc
+        ref: "wiki/revenue"
+
+  - id: net_revenue
+    name: Net revenue
+    # Deliberate clash with `revenue`: this is what the action flags.
+    synonyms: ["revenue"]
+    domain: sales
+    table: orders
+    expr: "sum(CASE WHEN orders.status <> 'cancelled' THEN orders.amount ELSE 0 END)"
+    description: "Revenue excluding cancelled orders"
+    evidence:
+      - type: doc
+        ref: "wiki/net-revenue"
+
+  - id: order_count
+    name: Order count
+    synonyms: ["orders"]
+    domain: sales
+    table: orders
+    expr: "count(orders.id)"
+    description: "Number of orders"

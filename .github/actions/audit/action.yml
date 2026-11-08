@@ -1,0 +1,159 @@
+name: "Hygieia semantic-layer audit"
+description: >-
+  Run Hygieia's static audit on a semantic layer, upload the JSON result as an
+  artifact, emit SARIF for PR annotations, write a step summary, and fail the job
+  when findings reach the configured severity.
+author: "Hygieia"
+branding:
+  icon: activity
+  color: purple
+
+inputs:
+  path:
+    description: >-
+      Fixture/semantic directory to audit. Must contain `semantic/metrics.yml`;
+      `schema.sql` is optional (rules that need physical columns are reported in
+      `skipped_rules`).
+    required: true
+  fail-on:
+    description: "Severity gate: high | medium | low | none (none disables gating)."
+    required: false
+    default: "high"
+  args:
+    description: "Extra arguments appended to `hygieia audit` (e.g. `--lang zh`)."
+    required: false
+    default: ""
+  sarif-file:
+    description: "Where to write SARIF 2.1.0."
+    required: false
+    default: "hygieia.sarif"
+  json-file:
+    description: "Where to write the machine-readable audit result."
+    required: false
+    default: "hygieia-audit.json"
+  upload-sarif:
+    description: >-
+      Upload the SARIF file with github/codeql-action/upload-sarif. Requires
+      `permissions: security-events: write` on the calling job.
+    required: false
+    default: "true"
+  artifact-name:
+    description: "Name of the uploaded artifact containing the JSON + SARIF files."
+    required: false
+    default: "hygieia-audit"
+
+outputs:
+  exit-code:
+    description: "Exit code of the gated audit run (0 = pass, 1 = gate hit)."
+    value: ${{ steps.audit.outputs.exit-code }}
+  findings-total:
+    description: "Total number of findings."
+    value: ${{ steps.audit.outputs.findings-total }}
+  findings-high:
+    description: "Number of high-severity findings."
+    value: ${{ steps.audit.outputs.findings-high }}
+  json-file:
+    description: "Path to the JSON result."
+    value: ${{ steps.audit.outputs.json-file }}
+  sarif-file:
+    description: "Path to the SARIF result."
+    value: ${{ steps.audit.outputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install Hygieia (this repository checkout)
+      shell: bash
+      run: |
+        python -m pip install --disable-pip-version-check "$GITHUB_ACTION_PATH/../../.."
+
+    - name: Audit with gate (human-readable log + SARIF)
+      id: audit
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_ARGS: ${{ inputs.args }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+        JSON_FILE: ${{ inputs.json-file }}
+      run: |
+        set +e
+        hygieia audit "$INPUT_PATH" --fail-on "$INPUT_FAIL_ON" --sarif "$SARIF_FILE" $INPUT_ARGS
+        code=$?
+        set -e
+
+        # Machine-readable copy for the artifact, the step summary and the outputs.
+        hygieia audit "$INPUT_PATH" --json $INPUT_ARGS > "$JSON_FILE"
+
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        echo "json-file=$JSON_FILE" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+
+        python - "$JSON_FILE" >> "$GITHUB_OUTPUT" <<'PY'
+        import json, sys
+        data = json.load(open(sys.argv[1], encoding="utf-8"))
+        counts = data["summary"]["counts"]
+        print(f"findings-total={data['summary']['total']}")
+        print(f"findings-high={counts['high']}")
+        PY
+
+    - name: Step summary
+      if: always()
+      shell: bash
+      env:
+        JSON_FILE: ${{ inputs.json-file }}
+      run: |
+        python - "$JSON_FILE" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+        import json, sys
+        data = json.load(open(sys.argv[1], encoding="utf-8"))
+        c = data["summary"]["counts"]
+        print("## Hygieia audit\n")
+        print(f"- fixture: `{data['fixture']}`")
+        print(f"- findings: **{data['summary']['total']}** "
+              f"(high {c['high']} / medium {c['medium']} / low {c['low']})")
+        if data.get("skipped_rules"):
+            skipped = ", ".join(s["rule"] for s in data["skipped_rules"])
+            print(f"- skipped rules: {skipped}")
+        rows = [f for f in data["findings"] if f["severity"] in ("high", "medium")]
+        if rows:
+            print("\n| Severity | Rule | Subject | Detail |")
+            print("|---|---|---|---|")
+            for f in rows:
+                print(f"| {f['severity']} | `{f['rule']}` | `{f['subject']}` | {f['detail']} |")
+        else:
+            print("\nNo high/medium findings.")
+        PY
+
+    - name: Upload audit artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.json-file }}
+          ${{ inputs.sarif-file }}
+        if-no-files-found: warn
+
+    - name: Upload SARIF (code scanning)
+      if: always() && inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: hygieia
+
+    - name: Enforce the gate
+      if: always()
+      shell: bash
+      env:
+        CODE: ${{ steps.audit.outputs.exit-code }}
+      run: |
+        if [ -z "$CODE" ]; then
+          echo "hygieia: audit step did not report an exit code; failing closed" >&2
+          exit 1
+        fi
+        exit "$CODE"

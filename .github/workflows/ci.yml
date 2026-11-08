@@ -68,3 +68,67 @@ jobs:
             RANGE="HEAD^..HEAD"
           fi
           git diff "$RANGE" | python scripts/hygieia.py impact fixtures/ecom --diff -
+
+  action:
+    name: composite action (self-test)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # only needed when HYGIEIA_UPLOAD_SARIF=true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the composite action (gate disabled so this job proves the plumbing)
+        id: hygieia
+        uses: ./.github/actions/audit
+        with:
+          path: fixtures/ecom
+          fail-on: none
+          upload-sarif: "false"
+
+      - name: Assert the action produced valid JSON + SARIF and real counts
+        env:
+          HIGH: ${{ steps.hygieia.outputs.findings-high }}
+          TOTAL: ${{ steps.hygieia.outputs.findings-total }}
+        run: |
+          python - <<'PY'
+          import json, os
+          d = json.load(open("hygieia-audit.json", encoding="utf-8"))
+          assert d["summary"]["total"] == 7, d["summary"]
+          assert d["summary"]["counts"]["high"] == 3, d["summary"]
+          assert os.environ["TOTAL"] == "7", os.environ["TOTAL"]
+          assert os.environ["HIGH"] == "3", os.environ["HIGH"]
+          s = json.load(open("hygieia.sarif", encoding="utf-8"))
+          assert s["version"] == "2.1.0"
+          run = s["runs"][0]
+          assert run["tool"]["driver"]["name"] == "Hygieia"
+          assert len(run["results"]) == 7, len(run["results"])
+          assert {r["level"] for r in run["results"]} == {"error", "warning"}
+          print("composite action OK: 7 findings, SARIF 2.1.0 with 7 results")
+          PY
+
+      - name: Prove the gate exits 1 on high findings
+        run: |
+          set +e
+          hygieia audit fixtures/ecom --fail-on high > /dev/null
+          code=$?
+          set -e
+          if [ "$code" -ne 1 ]; then
+            echo "expected exit 1 from --fail-on high, got $code" >&2
+            exit 1
+          fi
+
+
+  action-sarif:
+    name: composite action (SARIF upload, opt-in)
+    if: github.event_name == 'push' && vars.HYGIEIA_UPLOAD_SARIF == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/audit
+        with:
+          path: fixtures/ecom
+          fail-on: none
+          upload-sarif: "true"
