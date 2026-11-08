@@ -136,7 +136,7 @@ The semantic layer fixed three caliber errors on q08, q10, and q12: total revenu
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/figures/pipeline-dark.svg">
-  <img src="docs/figures/pipeline.svg" width="880" alt="Hygieia pipeline: the ecom fixture feeds audit, rot, and eval; audit checks R1-R9, rot injects structural and semantic drift in memory, eval scores two arms against executed gold SQL; report aggregates all three into reports/health-report.md. adapt dbt and impact are optional v1 utilities.">
+  <img src="docs/figures/pipeline.svg" width="880" alt="Hygieia pipeline: inputs are the native semantic/metrics.yml with optional schema.sql, plus the read-only adapt dbt and adapt ossie adapters that map external semantic models into metrics.yml; audit checks R1-R9, rot injects five drifts (3 structural + 2 semantic) and re-runs audit, eval scores two arms against executed gold SQL; report writes reports/health-report.md; two dashed consumption paths lead to a CI gate (audit --fail-on high + SARIF via a composite Action) and an agent gate that audits before answering.">
 </picture>
 
 ### Commands

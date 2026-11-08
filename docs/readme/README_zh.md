@@ -78,7 +78,7 @@ hygieia --lang zh audit .tmp/ossie
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../../docs/figures/pipeline-dark.svg">
-  <img src="../../docs/figures/pipeline.svg" width="880" alt="Hygieia 流程：ecom fixture 供给 audit、rot、eval；audit 检查 R1–R9，rot 在内存注入结构漂移与语义腐烂，eval 用可执行的金标 SQL 判两臂答案；report 汇总三者，写出 reports/health-report.md。adapt dbt 与 impact 是 v1 的可选工具。">
+  <img src="../../docs/figures/pipeline.svg" width="880" alt="Hygieia 流程：输入是原生 semantic/metrics.yml（schema.sql 可选），以及把外来语义模型映射成 metrics.yml 的只读适配器 adapt dbt、adapt ossie；audit 检查 R1–R9，rot 注入五类漂移（结构 3 + 语义 2）后重跑 audit，eval 用可执行的金标 SQL 判两臂答案；report 写出 reports/health-report.md；右侧两条虚线消费路径分别是 CI 门禁（audit --fail-on high + SARIF，composite Action）与 agent 回答前的 audit 门禁。">
 </picture>
 
 四个主命令：

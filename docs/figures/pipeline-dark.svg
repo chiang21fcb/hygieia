@@ -1,89 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-labelledby="t d">
-  <title id="t">Hygieia pipeline</title>
-  <desc id="d">The ecom fixture (schema, metrics.yml, questions and answers) feeds audit, rot, and eval. audit checks R1-R9, rot re-runs audit on injected structural and semantic decay, eval scores two arms against executed gold SQL. report writes reports/health-report.md. adapt dbt and impact are optional read-only v1 utilities.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" role="img" aria-labelledby="t d">
+  <title id="t">Hygieia pipeline (v0.2)</title>
+  <desc id="d">Hygieia pipeline. Inputs: the native semantic/metrics.yml with an optional schema.sql, plus read-only adapt dbt and adapt ossie adapters that map external semantic models into metrics.yml. audit checks nine rule classes R1-R9; rot injects five drifts (three structural, two semantic) and re-runs audit; eval scores two arms against executed gold SQL. All three feed report, which writes reports/health-report.md. Two dashed consumers sit alongside: a CI gate (audit --fail-on high plus SARIF through a composite Action) and an agent gate that audits before answering. impact maps a git diff to affected metrics.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.4" markerHeight="6.4" orient="auto">
       <path d="M0,1 L10,5 L0,9 z" fill="#8b949e"/>
     </marker>
   </defs>
-
-  <g transform="translate(0,-16)">
-
-  <!-- fixture card -->
-  <rect x="40" y="64" width="260" height="236" rx="12" fill="#161b22" stroke="#30363d"/>
-  <text x="60" y="90" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" font-weight="600" letter-spacing="0.4" fill="#9198a1">ecom fixture</text>
-
-  <rect x="56" y="100" width="228" height="30" rx="7" fill="#0d1117" stroke="#30363d"/>
-  <text x="70" y="120" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#e6edf3">schema.sql</text>
-
-  <rect x="56" y="138" width="228" height="30" rx="7" fill="#0d1117" stroke="#30363d"/>
-  <text x="70" y="158" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#e6edf3">semantic/metrics.yml</text>
-
-  <rect x="56" y="176" width="228" height="44" rx="7" fill="#0d1117" stroke="#30363d"/>
-  <text x="70" y="194" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#e6edf3">questions.yaml</text>
-  <text x="70" y="212" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#e6edf3">+ demo_results.json</text>
-
-  <line x1="56" y1="240" x2="284" y2="240" stroke="#30363d" stroke-width="1"/>
-  <text x="60" y="262" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#9198a1">6 tables · 20 questions · 2 arms</text>
-
-  <!-- tool cards -->
-  <g>
-    <rect x="360" y="64" width="248" height="68" rx="12" fill="#161b22" stroke="#30363d"/>
-    <rect x="372" y="77" width="26" height="26" rx="7" fill="#10304f"/>
-    <circle cx="384" cy="89" r="5.2" fill="none" stroke="#4493f8" stroke-width="1.8"/><line x1="388.2" y1="93.2" x2="392.6" y2="97.6" stroke="#4493f8" stroke-width="1.8" stroke-linecap="round"/>
-    <text x="412" y="95" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#4493f8">hygieia audit</text>
-    <text x="412" y="116" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#9198a1">9 rule classes, R1–R9</text>
+  <g transform="translate(0,-12)">
+  <rect x="48" y="64" width="240" height="238" rx="12" fill="#161b22" stroke="#30363d"/>
+  <text x="64" y="92" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#9198a1" font-weight="600" letter-spacing="0.4">fixture directory</text>
+  <rect x="64" y="102" width="208" height="56" rx="8" fill="#10304f" stroke="#1f6feb"/>
+  <text x="78" y="126" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#e6edf3">semantic/metrics.yml</text>
+  <text x="78" y="147" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" fill="#9198a1">required · native contract</text>
+  <rect x="64" y="166" width="208" height="56" rx="8" fill="#0d1117" stroke="#30363d"/>
+  <text x="78" y="190" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#e6edf3">schema.sql</text>
+  <text x="78" y="211" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" fill="#9198a1">optional for audit · eval/rot need it</text>
+  <rect x="64" y="230" width="208" height="56" rx="8" fill="#0d1117" stroke="#30363d"/>
+  <text x="78" y="254" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="12.5" fill="#e6edf3">questions.yaml</text>
+  <text x="78" y="275" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" fill="#9198a1">eval only · + demo_results.json</text>
+  <rect x="336" y="64" width="264" height="72" rx="12" fill="#161b22" stroke="#30363d"/>
+  <rect x="352" y="78" width="26" height="26" rx="7" fill="#10304f" stroke="#1f6feb" stroke-width="0"/>
+  <circle cx="364" cy="90" r="5.2" fill="none" stroke="#4493f8" stroke-width="1.8"/>
+  <line x1="368.2" y1="94.2" x2="372.6" y2="98.6" stroke="#4493f8" stroke-width="1.8" stroke-linecap="round"/>
+  <text x="388" y="96" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" fill="#4493f8">hygieia audit</text>
+  <text x="388" y="117" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#9198a1">9 rule classes, R1–R9</text>
+  <rect x="336" y="152" width="264" height="72" rx="12" fill="#161b22" stroke="#30363d"/>
+  <rect x="352" y="166" width="26" height="26" rx="7" fill="#10304f" stroke="#1f6feb" stroke-width="0"/>
+  <path d="M365,172 L371.4,185 L358.6,185 Z" fill="none" stroke="#4493f8" stroke-width="1.6" stroke-linejoin="round"/>
+  <line x1="365" y1="177" x2="365" y2="180.4" stroke="#4493f8" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="365" cy="182.8" r="0.9" fill="#4493f8"/>
+  <text x="388" y="184" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" fill="#4493f8">hygieia rot</text>
+  <text x="388" y="205" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#9198a1">5 drifts, re-runs audit</text>
+  <text x="388" y="219" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" fill="#9198a1">structural 3 + semantic 2</text>
+  <rect x="336" y="240" width="264" height="72" rx="12" fill="#161b22" stroke="#30363d"/>
+  <rect x="352" y="254" width="26" height="26" rx="7" fill="#10304f" stroke="#1f6feb" stroke-width="0"/>
+  <rect x="358" y="268" width="3.4" height="8" rx="1" fill="#4493f8"/>
+  <rect x="364" y="264" width="3.4" height="12" rx="1" fill="#4493f8"/>
+  <rect x="370" y="266" width="3.4" height="10" rx="1" fill="#4493f8"/>
+  <text x="388" y="272" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" fill="#4493f8">hygieia eval</text>
+  <text x="388" y="293" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#9198a1">two arms, gold SQL executed</text>
+  <rect x="648" y="90" width="264" height="192" rx="12" fill="#1f6feb" stroke="#388bfd"/>
+  <rect x="668" y="106" width="26" height="26" rx="7" fill="#ffffff" fill-opacity="0.18"/>
+  <rect x="676" y="113" width="10" height="13" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.6"/>
+  <line x1="678.5" y1="117" x2="683.5" y2="117" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+  <line x1="678.5" y1="120.5" x2="683.5" y2="120.5" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
+  <text x="704" y="126" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#ffffff">hygieia report</text>
+  <line x1="668" y1="148" x2="892" y2="148" stroke="#ffffff" stroke-opacity="0.28" stroke-width="1"/>
+  <text x="668" y="180" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="9.5" fill="#cae8ff">01</text>
+  <text x="694" y="180" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#ffffff">findings · high / medium / low</text>
+  <text x="668" y="210" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="9.5" fill="#cae8ff">02</text>
+  <text x="694" y="210" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#ffffff">rot · new captures</text>
+  <text x="668" y="240" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="9.5" fill="#cae8ff">03</text>
+  <text x="694" y="240" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#ffffff">eval · accuracy / silent rate</text>
+  <rect x="664" y="296" width="232" height="30" rx="7" fill="#161b22" stroke="#388bfd"/>
+  <text x="678" y="316" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" fill="#e6edf3">reports/health-report.md</text>
+  <text x="664" y="348" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" fill="#9198a1" font-weight="600" letter-spacing="1.2">CONSUMERS</text>
+  <rect x="648" y="354" width="264" height="58" rx="12" fill="none" stroke="#30363d" stroke-dasharray="5 4"/>
+  <text x="664" y="374" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#e6edf3" font-weight="600">CI gate</text>
+  <text x="664" y="389" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#4493f8">hygieia audit --fail-on high</text>
+  <text x="664" y="402" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" fill="#9198a1">SARIF · composite Action</text>
+  <rect x="648" y="424" width="264" height="56" rx="12" fill="none" stroke="#30363d" stroke-dasharray="5 4"/>
+  <text x="664" y="443" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#e6edf3" font-weight="600">Agent gate</text>
+  <text x="664" y="457" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#4493f8">audit before answering</text>
+  <text x="664" y="470" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" fill="#9198a1">no high findings → answer</text>
+  <text x="48" y="346" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" fill="#9198a1" font-weight="600" letter-spacing="1.2">ADAPTERS / UTILITIES</text>
+  <rect x="48" y="356" width="200" height="34" rx="17" fill="none" stroke="#30363d" stroke-dasharray="5 4"/>
+  <text x="62" y="378" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" fill="#4493f8">adapt ossie</text>
+  <text x="148" y="378" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" fill="#9198a1">YAML → metrics.yml</text>
+  <rect x="256" y="356" width="180" height="34" rx="17" fill="none" stroke="#30363d" stroke-dasharray="5 4"/>
+  <text x="270" y="378" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" fill="#4493f8">adapt dbt</text>
+  <text x="340" y="378" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" fill="#9198a1">YAML → metrics.yml</text>
+  <rect x="444" y="356" width="180" height="34" rx="17" fill="none" stroke="#30363d" stroke-dasharray="5 4"/>
+  <text x="458" y="378" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" fill="#4493f8">impact</text>
+  <text x="508" y="378" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="10" fill="#9198a1">git diff → metrics</text>
+  <text x="48" y="416" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="9.5" fill="#9198a1">read-only · adapt ossie is the first-class input → semantic/metrics.yml</text>
+  <g fill="none" stroke="#8b949e" stroke-width="1.5" linejoin="round" marker-end="url(#arrow)">
+    <path d="M292,100 H330"/>
+    <path d="M292,188 H330"/>
+    <path d="M292,276 H330"/>
+    <path d="M604,100 H642"/>
+    <path d="M604,188 H642"/>
+    <path d="M604,276 H642"/>
   </g>
-
-  <g>
-    <rect x="360" y="148" width="248" height="68" rx="12" fill="#161b22" stroke="#30363d"/>
-    <rect x="372" y="161" width="26" height="26" rx="7" fill="#10304f"/>
-    <path d="M385,167 L391.4,180 L378.6,180 Z" fill="none" stroke="#4493f8" stroke-width="1.6" stroke-linejoin="round"/><line x1="385" y1="172" x2="385" y2="175.4" stroke="#4493f8" stroke-width="1.6" stroke-linecap="round"/><circle cx="385" cy="177.8" r="0.9" fill="#4493f8"/>
-    <text x="412" y="179" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#4493f8">hygieia rot</text>
-    <text x="412" y="200" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#9198a1">3 drifts, re-runs audit</text>
-  </g>
-
-  <g>
-    <rect x="360" y="232" width="248" height="68" rx="12" fill="#161b22" stroke="#30363d"/>
-    <rect x="372" y="245" width="26" height="26" rx="7" fill="#10304f"/>
-    <rect x="378" y="259" width="3.4" height="8" rx="1" fill="#4493f8"/><rect x="384" y="255" width="3.4" height="12" rx="1" fill="#4493f8"/><rect x="390" y="257" width="3.4" height="10" rx="1" fill="#4493f8"/>
-    <text x="412" y="263" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#4493f8">hygieia eval</text>
-    <text x="412" y="284" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#9198a1">two arms, gold SQL executed</text>
-  </g>
-
-
-  <!-- report card -->
-  <rect x="700" y="140" width="220" height="110" rx="12" fill="#1f6feb" stroke="#388bfd"/>
-  <rect x="714" y="152" width="24" height="24" rx="6" fill="#ffffff" fill-opacity="0.18"/>
-  <rect x="721" y="158" width="10" height="13" rx="1.5" fill="none" stroke="#ffffff" stroke-width="1.6"/>
-  <line x1="723.5" y1="162" x2="728.5" y2="162" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
-  <line x1="723.5" y1="165.5" x2="728.5" y2="165.5" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"/>
-  <text x="750" y="170" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" fill="#ffffff">hygieia report</text>
-  <text x="714" y="200" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#cae8ff">audit + rot + eval</text>
-  <text x="714" y="218" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11.5" fill="#cae8ff">3 sections, 1 file</text>
-
-  <rect x="716" y="272" width="188" height="30" rx="7" fill="#161b22" stroke="#388bfd"/>
-  <text x="728" y="292" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" fill="#e6edf3">reports/health-report.md</text>
-
-  <!-- arrows -->
-  <g fill="none" stroke="#8b949e" stroke-width="1.6" linejoin="round" marker-end="url(#arrow)">
-    <path d="M300,98 H352"/>
-    <path d="M300,266 H352"/>
-    <path d="M608,98 H740 Q760,98 760,118 V132"/>
-    <path d="M608,182 H692"/>
-    <path d="M608,266 H648 Q668,266 668,246 V220 Q668,206 700,206"/>
-    <path d="M810,250 V266"/>
-  </g>
-
-  <!-- v1 utilities -->
-  <text x="40" y="355" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" font-weight="600" fill="#9198a1">v1, optional</text>
-
-  <rect x="124" y="336" width="200" height="28" rx="14" fill="none" stroke="#30363d" stroke-dasharray="4 3"/>
-  <text x="140" y="355" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" fill="#4493f8">adapt dbt</text>
-  <text x="216" y="355" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#9198a1">YAML → metrics.yml</text>
-
-  <rect x="344" y="336" width="224" height="28" rx="14" fill="none" stroke="#30363d" stroke-dasharray="4 3"/>
-  <text x="360" y="355" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" fill="#4493f8">impact</text>
-  <text x="410" y="355" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="11" fill="#9198a1">git diff → metrics</text>
   </g>
 </svg>
